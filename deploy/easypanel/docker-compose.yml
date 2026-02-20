@@ -19,7 +19,7 @@ services:
       REDIS_URL: redis://recibox-redis:6379/0
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.tu-dominio.com/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
       OAUTH_REQUIRED_FOR_TENANT: "false"
