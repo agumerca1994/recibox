@@ -1,16 +1,14 @@
 services:
   recibox-redis:
     image: redis:7-alpine
-    container_name: recibox-redis
     restart: unless-stopped
     volumes:
       - recibox_redis_data:/data
 
   recibox-api:
     build:
-      context: .
+      context: ../..
       dockerfile: backend/Dockerfile
-    container_name: recibox-api
     restart: unless-stopped
     depends_on:
       - recibox-redis
@@ -37,18 +35,17 @@ services:
       LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
       RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
       RQ_JOB_TIMEOUT_SECONDS: "900"
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - recibox_tmp_data:/app/backend/tmp
-      - ./deploy/easypanel/secrets/service-account.json:/run/secrets/service-account.json:ro
-      - ./deploy/easypanel/secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
+      - /opt/recibox-secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
 
   recibox-worker:
     build:
-      context: .
+      context: ../..
       dockerfile: backend/Dockerfile
-    container_name: recibox-worker
     restart: unless-stopped
     depends_on:
       - recibox-redis
@@ -79,8 +76,8 @@ services:
       RQ_JOB_TIMEOUT_SECONDS: "900"
     volumes:
       - recibox_tmp_data:/app/backend/tmp
-      - ./deploy/easypanel/secrets/service-account.json:/run/secrets/service-account.json:ro
-      - ./deploy/easypanel/secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
+      - /opt/recibox-secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
 
 volumes:
   recibox_redis_data:
