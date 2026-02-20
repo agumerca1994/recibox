@@ -26,6 +26,7 @@ backend/.env.*
 test/credential/*.json
 **/credential/*.json
 **/credentials/*.json
+deploy/easypanel/secrets/
 
 # Google OAuth / runtime tokens
 backend/tmp/google_tokens/

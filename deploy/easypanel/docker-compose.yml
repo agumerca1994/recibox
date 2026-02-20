@@ -1,0 +1,87 @@
+services:
+  recibox-redis:
+    image: redis:7-alpine
+    container_name: recibox-redis
+    restart: unless-stopped
+    volumes:
+      - recibox_redis_data:/data
+
+  recibox-api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: recibox-api
+    restart: unless-stopped
+    depends_on:
+      - recibox-redis
+    environment:
+      APP_NAME: recibox-backend
+      ENV: prod
+      LOG_LEVEL: INFO
+      REDIS_URL: redis://recibox-redis:6379/0
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.tu-dominio.com/auth/google/callback
+      GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
+      GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
+      OAUTH_REQUIRED_FOR_TENANT: "false"
+      DRIVE_INPUT_FOLDER_ID: your_input_folder_id
+      DRIVE_ROOT_FOLDER_ID: your_recibox_root_folder_id
+      DRIVE_SUPPORTS_ALL_DRIVES: "true"
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
+      DRIVE_PAGE_SIZE: "1000"
+      POLL_INTERVAL_SECONDS: "60"
+      OCR_ENABLED: "false"
+      OCR_MIN_TEXT_LEN: "200"
+      OCR_LANG: spa+eng
+      LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
+      RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
+      RQ_JOB_TIMEOUT_SECONDS: "900"
+    ports:
+      - "8000:8000"
+    volumes:
+      - recibox_tmp_data:/app/backend/tmp
+      - ./deploy/easypanel/secrets/service-account.json:/run/secrets/service-account.json:ro
+      - ./deploy/easypanel/secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+
+  recibox-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: recibox-worker
+    restart: unless-stopped
+    depends_on:
+      - recibox-redis
+      - recibox-api
+    command: ["rq", "worker", "recibox", "--url", "redis://recibox-redis:6379/0"]
+    environment:
+      APP_NAME: recibox-backend
+      ENV: prod
+      LOG_LEVEL: INFO
+      REDIS_URL: redis://recibox-redis:6379/0
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.tu-dominio.com/auth/google/callback
+      GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
+      GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
+      OAUTH_REQUIRED_FOR_TENANT: "false"
+      DRIVE_INPUT_FOLDER_ID: your_input_folder_id
+      DRIVE_ROOT_FOLDER_ID: your_recibox_root_folder_id
+      DRIVE_SUPPORTS_ALL_DRIVES: "true"
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
+      DRIVE_PAGE_SIZE: "1000"
+      POLL_INTERVAL_SECONDS: "60"
+      OCR_ENABLED: "false"
+      OCR_MIN_TEXT_LEN: "200"
+      OCR_LANG: spa+eng
+      LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
+      RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
+      RQ_JOB_TIMEOUT_SECONDS: "900"
+    volumes:
+      - recibox_tmp_data:/app/backend/tmp
+      - ./deploy/easypanel/secrets/service-account.json:/run/secrets/service-account.json:ro
+      - ./deploy/easypanel/secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+
+volumes:
+  recibox_redis_data:
+  recibox_tmp_data:
