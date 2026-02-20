@@ -1,0 +1,42 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+backend/.env
+backend/.env.*
+*.pem
+*.key
+*client_secret*.json
+*service-account*.json
+test/credential/*.json
+**/credential/*.json
+**/credentials/*.json
+
+# Google OAuth / runtime tokens
+backend/tmp/google_tokens/
+
+# Runtime artifacts
+backend/tmp/downloads/
+backend/tmp/*.pdf
+backend/tmp/results.jsonl
+backend/tmp/*.log
+
+# Build / packaging
+build/
+dist/
+*.egg-info/

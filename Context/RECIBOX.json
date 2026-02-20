@@ -1,0 +1,1339 @@
+{
+  "name": "RECIBOX",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "authentication": "serviceAccount",
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "1LA8i4ZB_9FCIwOJWzdWMmE1SC8tOZNFS",
+          "mode": "list",
+          "cachedResultName": "INPUT",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1LA8i4ZB_9FCIwOJWzdWMmE1SC8tOZNFS"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d2dc88d0-0758-472b-aa4d-5e9bd0b27228",
+      "name": "Google Drive Trigger",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "12ddc7cb-be97-43e2-ad97-762e24d4b3d8",
+              "leftValue": "={{ $('Search files and folders').item.json.name }}",
+              "rightValue": "pdf",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "c93cf0dc-0b1a-4f2f-a3d1-846e01ce909e",
+              "leftValue": "={{ $('Search files and folders').item.json.name }}",
+              "rightValue": "PDF",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        0
+      ],
+      "id": "5c93e5b9-a847-4b8d-9a67-10e55404db84",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "1LA8i4ZB_9FCIwOJWzdWMmE1SC8tOZNFS",
+            "mode": "list",
+            "cachedResultName": "INPUT",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1LA8i4ZB_9FCIwOJWzdWMmE1SC8tOZNFS"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "22221aa7-c265-4d0f-a475-2abf0a18283c",
+      "name": "Search files and folders",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "84c97665-e847-4164-aa28-531959fcbb7d",
+              "name": "text",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1472,
+        0
+      ],
+      "id": "a3630575-3ddb-4b34-9211-51a9423db606",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "4368d626-c4be-4d0d-a8c8-524fe02660fe",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        688,
+        -16
+      ],
+      "id": "059693d1-9354-4553-b8eb-d8dcd1c4dd4f",
+      "name": "Download file",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "attributes": {
+          "attributes": [
+            {
+              "name": "Empleado",
+              "description": "Nombre del empleado"
+            },
+            {
+              "name": "Cuit",
+              "description": "Cuit del empleado"
+            },
+            {
+              "name": "Legajo",
+              "description": "Legajo del empleado"
+            },
+            {
+              "name": "Fecha",
+              "description": "Fecha Mensual "
+            },
+            {
+              "name": "MES",
+              "description": "Mes de fecha mensual"
+            },
+            {
+              "name": "AÑO",
+              "description": "Año de fecha mensual"
+            },
+            {
+              "name": "FECHA PAGO",
+              "description": "FECHA DE PAGO"
+            },
+            {
+              "name": "PERIODO APORTE",
+              "description": "PERIODO DE APORTE"
+            },
+            {
+              "name": "FECHA ",
+              "description": "ULTIMO DATO DE FECHA"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "84e7cd13-3615-456c-8f72-dc8c1bd966a6",
+      "name": "Information Extractor"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "gpt-4o"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1680,
+        192
+      ],
+      "id": "1c1b39aa-c34e-4be5-a8fc-cea1b9a633b3",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "gYBqnOwFqdFzeYPj",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "newUpdatedFileName": "={{ $('Information Extractor').item.json.output.MES }}-{{ $('Information Extractor').item.json.output['AÑO'] }}) {{ $('Information Extractor').item.json.output.Empleado }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3712,
+        -48
+      ],
+      "id": "f5fd8cc0-0cde-40d6-8a4b-2a7d0cc1c73a",
+      "name": "Update file",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Download file').item.json.id }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3520,
+        -48
+      ],
+      "id": "cb94451e-6dce-4f2d-99cd-8a2d3ea8dce2",
+      "name": "Move file",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "fileFolder",
+        "queryString": "={{ $json.output.Empleado }}",
+        "returnAll": true,
+        "filter": {
+          "driveId": {
+            "mode": "list",
+            "value": "My Drive"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-",
+            "mode": "list",
+            "cachedResultName": "RECIBOX",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1984,
+        0
+      ],
+      "id": "54392170-0d9b-473a-90fc-f11443bd280b",
+      "name": "Search files and folders1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "driveId": {
+            "mode": "list",
+            "value": "My Drive"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2928,
+        -16
+      ],
+      "id": "62d5e728-b74a-4953-a712-4beae8e6bf7b",
+      "name": "Search files and folders2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "folder",
+        "name": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Switch1').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3312,
+        16
+      ],
+      "id": "b57542d9-2b02-4bd4-b9a4-e1f737ad6a4c",
+      "name": "Create folder",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0bb64bbe-1b69-4f27-a815-d540a2b4f5c7"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SI"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c1815653-20c9-4695-867b-a2b7725c089c",
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "NO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "41a3f28b-c414-4638-b697-dc5a3d8ca08d",
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VACIO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        3088,
+        -32
+      ],
+      "id": "a2461f8e-675d-4889-b0c6-578d662b0ef3",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e769b54d-defe-445d-b086-5219b275d942",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "#",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        2336,
+        240
+      ],
+      "id": "4e243024-3404-4105-a45e-6669a384ddb6",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "field": "name"
+            }
+          ]
+        },
+        "fieldsToSplitBy": "#",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [
+        2480,
+        240
+      ],
+      "id": "13907cfb-43ec-4f92-8c7a-5808b64fee2d",
+      "name": "Summarize"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\n\nfor (const item of $input.all()) {\n  const raw = item.json.count_name;\n\n  // Normaliza string (espacios + coma decimal)\n  const normalized = String(raw ?? \"0\").trim().replace(\",\", \".\");\n\n  // Convierte a número de forma segura\n  const n = Number(normalized);\n  const current = Number.isFinite(n) ? n : 0;\n\n  out.push({\n    json: {\n      numero_de_usuario: current + 1,\n    },\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        240
+      ],
+      "id": "2eb115ed-6fc2-4074-bf0b-6b931a397503",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "folder",
+        "name": "=#{{ $json.numero_de_usuario }} {{ $('Information Extractor').item.json.output.Empleado }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-",
+          "mode": "list",
+          "cachedResultName": "RECIBOX",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2768,
+        240
+      ],
+      "id": "305c8a52-d76c-4fdb-8765-5501a05e6830",
+      "name": "Create folder1",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output.Empleado }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    },
+                    "id": "54e1d4d1-1bbb-41dd-991c-0a263a83e728"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "EXISTE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "f32d80ca-bd6a-4a48-b59f-3580a6f50d99",
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output.Empleado }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "NO EXISTE"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2144,
+        0
+      ],
+      "id": "44aa9061-6a94-4801-bfa2-488cc9809b1b",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "newUpdatedFileName": "={{ $('Information Extractor').item.json.output.MES }}-{{ $('Information Extractor').item.json.output['AÑO'] }}) {{ $('Information Extractor').item.json.output.Empleado }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3712,
+        208
+      ],
+      "id": "69c85a5f-54df-4be6-8fca-84f256fc76bc",
+      "name": "Update file1",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Download file').item.json.id }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3520,
+        208
+      ],
+      "id": "d55be71f-ca15-456d-b6f8-ff06cb7abf48",
+      "name": "Move file1",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "driveId": {
+            "mode": "list",
+            "value": "My Drive"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "={{ $json.id }}",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2928,
+        240
+      ],
+      "id": "c1ac5ac2-4836-452f-a9f3-a1f12a8f173e",
+      "name": "Search files and folders3",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "folder",
+        "name": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Create folder1').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3312,
+        272
+      ],
+      "id": "d59fd126-6405-4930-a32c-3f85d528ec25",
+      "name": "Create folder2",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0bb64bbe-1b69-4f27-a815-d540a2b4f5c7"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SI"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c1815653-20c9-4695-867b-a2b7725c089c",
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "={{ $('Information Extractor').item.json.output['AÑO'] }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "NO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "41a3f28b-c414-4638-b697-dc5a3d8ca08d",
+                    "leftValue": "={{ $json.name }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VACIO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        3088,
+        224
+      ],
+      "id": "ab04b198-32ee-403f-93b3-ee3ea84fed8f",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "36041e21-9819-4bb6-968e-0fa210968e76",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "={{ $('Information Extractor').item.json.output.Empleado }}",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2320,
+        0
+      ],
+      "id": "8ddee41f-6fcf-4d53-8dfa-6989b9d6d2de",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "fileFolder",
+        "returnAll": true,
+        "filter": {
+          "driveId": {
+            "mode": "list",
+            "value": "My Drive"
+          },
+          "folderId": {
+            "__rl": true,
+            "value": "1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-",
+            "mode": "list",
+            "cachedResultName": "RECIBOX",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1H7UPwwiEea9zUmoRlhv9G1Aj9bwSkjw-"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2192,
+        240
+      ],
+      "id": "db772635-8878-4c58-a8fb-35de66b5369b",
+      "name": "Search files and folders4",
+      "credentials": {
+        "googleApi": {
+          "id": "ULJ7fckMkcWQYgIo",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": true
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        944,
+        -16
+      ],
+      "id": "7b1f2ceb-c527-4597-b1b7-8e3e3b9663b9",
+      "name": "Loop Over Items"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Information Extractor": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Information Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move file": {
+      "main": [
+        [
+          {
+            "node": "Update file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders1": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update file": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders2": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder": {
+      "main": [
+        [
+          {
+            "node": "Move file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Move file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create folder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Create folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder1": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search files and folders4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move file1": {
+      "main": [
+        [
+          {
+            "node": "Update file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders3": {
+      "main": [
+        [
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder2": {
+      "main": [
+        [
+          {
+            "node": "Move file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "Move file1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create folder2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create folder2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update file1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search files and folders4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders4": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ff9d33c1-2019-43c7-99d8-efefe132f90b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dcb41c045070dcb55497da749fcccc50250a2ccd43a523c64ebd8ca6f33575ef"
+  },
+  "id": "ZFHvbOM3zcUDjCi6",
+  "tags": []
+}

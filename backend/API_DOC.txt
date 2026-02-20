@@ -1,0 +1,82 @@
+RECIBOX Backend API (sin auth, MVP)
+===================================
+
+Base URL
+  http://<host>:<port>
+
+Notas
+  - Endpoints sin autenticacion por ahora.
+  - Respuestas en JSON salvo descargas de archivo.
+  - Errores devuelven HTTP 4xx/5xx con "detail".
+
+
+Salud
+-----
+GET /health
+  Respuesta:
+    {"status":"ok"}
+
+
+Drive - Archivos INPUT
+----------------------
+GET /drive/files
+  Lista PDFs en carpeta INPUT de Drive.
+  Respuesta:
+    {"count": <n>, "files": [ ... ]}
+
+
+Drive - Carpetas de empleados
+-----------------------------
+GET /drive/employees
+  Lista carpetas dentro de la carpeta raiz RECIBOX.
+  Respuesta:
+    {"count": <n>, "folders": [ ... ]}
+
+
+Drive - Carpetas de anios por empleado
+--------------------------------------
+GET /drive/employees/{employee_folder_id}/years
+  Lista carpetas dentro de la carpeta del empleado.
+  Respuesta:
+    {"count": <n>, "folders": [ ... ]}
+
+
+Drive - Archivos dentro de una carpeta
+--------------------------------------
+GET /drive/folders/{folder_id}/files
+  Lista archivos dentro de la carpeta indicada.
+  Respuesta:
+    {"count": <n>, "files": [ ... ]}
+
+
+Drive - Descargar archivo
+-------------------------
+GET /drive/files/{file_id}/download
+  Descarga un PDF desde Drive y lo devuelve como application/pdf.
+
+
+Procesamiento (RQ + Redis)
+--------------------------
+POST /ingest/drive?tenant_id=default
+  Encola el procesamiento completo.
+  Respuesta:
+    {"status":"queued","job_id":"...","tenant_id":"default"}
+
+GET /jobs/{job_id}
+  Estado del job.
+  Respuesta:
+    {
+      "job_id": "...",
+      "status": "queued|started|finished|failed|canceled",
+      "result": {...} | null,
+      "created_at": "...",
+      "enqueued_at": "...",
+      "started_at": "...",
+      "ended_at": "...",
+      "duration_seconds": <float|null>
+    }
+
+POST /jobs/{job_id}/stop
+  Solicita detener un job en ejecucion y libera el lock del tenant.
+  Respuesta:
+    {"status":"stop_requested","job_id":"...","tenant_id":"..."}
