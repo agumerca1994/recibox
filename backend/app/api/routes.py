@@ -31,6 +31,7 @@ router = APIRouter()
 class TenantDriveConfigPayload(BaseModel):
     drive_input_folder_id: str
     drive_root_folder_id: str
+    drive_recibox_folder_id: str | None = None
 
 
 class CreateDriveFolderPayload(BaseModel):
@@ -40,6 +41,11 @@ class CreateDriveFolderPayload(BaseModel):
 
 class CreateReciboxStructurePayload(BaseModel):
     parent_id: str
+
+
+class CreateReciboxInputPayload(BaseModel):
+    recibox_folder_id: str
+    root_parent_id: str | None = None
 
 
 class CreateEmployeePayload(BaseModel):
@@ -103,7 +109,7 @@ async def list_employee_folders_endpoint(
     _ensure_tenant_active(tenant_id)
     cfg = _resolve_drive_config_or_400(tenant_id)
     try:
-        folders = list_employee_folders(cfg.drive_root_folder_id, tenant_id=tenant_id)
+        folders = list_employee_folders(cfg.recibox_folder_id, tenant_id=tenant_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
 
@@ -124,7 +130,7 @@ async def create_employee_folder(
         raise HTTPException(status_code=400, detail="employee_name is required")
     cfg = _resolve_drive_config_or_400(tenant_id)
     try:
-        folder = ensure_employee_folder(cfg.drive_root_folder_id, employee_name, tenant_id=tenant_id)
+        folder = ensure_employee_folder(cfg.recibox_folder_id, employee_name, tenant_id=tenant_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Create employee folder failed: {exc}")
     return {"status": "ok", "tenant_id": tenant_id, "folder": folder}
@@ -262,12 +268,14 @@ async def create_recibox_structure(
             redis_conn,
             tenant_id,
             drive_input_folder_id=input_folder["id"],
-            drive_root_folder_id=recibox_folder["id"],
+            drive_root_folder_id=parent_id,
+            drive_recibox_folder_id=recibox_folder["id"],
         )
         set_tenant_disabled(redis_conn, tenant_id, False)
         updated_config = {
             "drive_input_folder_id": cfg.drive_input_folder_id,
             "drive_root_folder_id": cfg.drive_root_folder_id,
+            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
             "source": cfg.source,
             "updated_at": cfg.updated_at,
         }
@@ -277,6 +285,106 @@ async def create_recibox_structure(
         "tenant_id": tenant_id,
         "parent_id": parent_id,
         "root_folder": recibox_folder,
+        "input_folder": input_folder,
+        "tenant_config_updated": bool(updated_config),
+        "tenant_config": updated_config,
+    }
+
+
+@router.get("/drive/picker/recibox-structure/check")
+async def check_recibox_structure(
+    tenant_id: str = Query("default"),
+    parent_id: str = Query("root"),
+):
+    _ensure_tenant_active(tenant_id)
+    parent = parent_id.strip()
+    if not parent:
+        raise HTTPException(status_code=400, detail="parent_id is required")
+
+    try:
+        recibox_folder = gdrive.find_folder_by_name(parent, "RECIBOX", tenant_id=tenant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Check structure failed: {exc}")
+
+    if not recibox_folder:
+        return {
+            "status": "missing_recibox",
+            "parent_id": parent,
+            "recibox_exists": False,
+            "input_exists": False,
+            "recibox_folder_id": None,
+            "input_folder_id": None,
+        }
+
+    try:
+        input_folder = gdrive.find_folder_by_name(recibox_folder["id"], "#0 INPUT", tenant_id=tenant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Check structure failed: {exc}")
+
+    if not input_folder:
+        return {
+            "status": "missing_input",
+            "parent_id": parent,
+            "recibox_exists": True,
+            "input_exists": False,
+            "recibox_folder_id": recibox_folder["id"],
+            "input_folder_id": None,
+        }
+
+    return {
+        "status": "complete",
+        "parent_id": parent,
+        "recibox_exists": True,
+        "input_exists": True,
+        "recibox_folder_id": recibox_folder["id"],
+        "input_folder_id": input_folder["id"],
+    }
+
+
+@router.post("/drive/picker/recibox-input")
+async def create_recibox_input(
+    payload: CreateReciboxInputPayload,
+    tenant_id: str = Query("default"),
+    save_as_tenant_config: bool = Query(True),
+):
+    _ensure_tenant_active(tenant_id)
+    recibox_folder_id = payload.recibox_folder_id.strip()
+    if not recibox_folder_id:
+        raise HTTPException(status_code=400, detail="recibox_folder_id is required")
+
+    try:
+        input_folder = gdrive.ensure_folder(recibox_folder_id, "#0 INPUT", tenant_id=tenant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Create input folder failed: {exc}")
+
+    updated_config = None
+    if save_as_tenant_config:
+        redis_conn = get_redis()
+        current_cfg = load_tenant_drive_config(redis_conn, tenant_id)
+        fallback_root = (settings.drive_root_folder_id or "").strip()
+        root_parent_id = (payload.root_parent_id or "").strip() or (
+            current_cfg.drive_root_folder_id if current_cfg else fallback_root or recibox_folder_id
+        )
+        cfg = save_tenant_drive_config(
+            redis_conn,
+            tenant_id,
+            drive_input_folder_id=input_folder["id"],
+            drive_root_folder_id=root_parent_id,
+            drive_recibox_folder_id=recibox_folder_id,
+        )
+        set_tenant_disabled(redis_conn, tenant_id, False)
+        updated_config = {
+            "drive_input_folder_id": cfg.drive_input_folder_id,
+            "drive_root_folder_id": cfg.drive_root_folder_id,
+            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
+            "source": cfg.source,
+            "updated_at": cfg.updated_at,
+        }
+
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "recibox_folder_id": recibox_folder_id,
         "input_folder": input_folder,
         "tenant_config_updated": bool(updated_config),
         "tenant_config": updated_config,
@@ -475,6 +583,7 @@ async def get_tenant_drive_config(tenant_id: str):
                 "tenant_id": tenant_id,
                 "drive_input_folder_id": default_input,
                 "drive_root_folder_id": default_root,
+                "drive_recibox_folder_id": None,
                 "source": "default_env",
                 "updated_at": None,
             }
@@ -483,6 +592,7 @@ async def get_tenant_drive_config(tenant_id: str):
                 "tenant_id": tenant_id,
                 "drive_input_folder_id": None,
                 "drive_root_folder_id": None,
+                "drive_recibox_folder_id": None,
                 "source": "not_configured",
                 "updated_at": None,
             }
@@ -491,6 +601,7 @@ async def get_tenant_drive_config(tenant_id: str):
             "tenant_id": cfg.tenant_id,
             "drive_input_folder_id": cfg.drive_input_folder_id,
             "drive_root_folder_id": cfg.drive_root_folder_id,
+            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
             "source": cfg.source,
             "updated_at": cfg.updated_at,
         }
@@ -499,6 +610,7 @@ async def get_tenant_drive_config(tenant_id: str):
         "tenant_id": cfg["tenant_id"],
         "drive_input_folder_id": cfg["drive_input_folder_id"],
         "drive_root_folder_id": cfg["drive_root_folder_id"],
+        "drive_recibox_folder_id": cfg["drive_recibox_folder_id"],
         "source": cfg["source"],
         "has_custom_config": has_custom,
         "updated_at": cfg["updated_at"],
@@ -514,6 +626,7 @@ async def put_tenant_drive_config(tenant_id: str, payload: TenantDriveConfigPayl
             tenant_id,
             drive_input_folder_id=payload.drive_input_folder_id,
             drive_root_folder_id=payload.drive_root_folder_id,
+            drive_recibox_folder_id=payload.drive_recibox_folder_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -526,6 +639,7 @@ async def put_tenant_drive_config(tenant_id: str, payload: TenantDriveConfigPayl
         "tenant_id": tenant_id,
         "drive_input_folder_id": cfg.drive_input_folder_id,
         "drive_root_folder_id": cfg.drive_root_folder_id,
+        "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
         "source": cfg.source,
         "updated_at": cfg.updated_at,
     }

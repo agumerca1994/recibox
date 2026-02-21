@@ -6,13 +6,13 @@ Este stack levanta RECIBOX como servicios separados dentro del mismo proyecto:
 - `recibox-worker` (RQ worker)
 - `recibox-redis` (Redis para la cola)
 
-Archivo base: `deploy/easypanel/docker-compose.yml`.
+Archivo base: `docker-compose.yml`.
 
 ## 1) Crear stack en el proyecto 1
 
 1. En EasyPanel, entra al proyecto 1.
 2. Crea un nuevo servicio tipo Compose/Stack.
-3. Pega el contenido de `deploy/easypanel/docker-compose.yml`.
+3. Pega el contenido de `docker-compose.yml`.
 
 ## 2) Secretos (no subir a Git)
 
@@ -58,13 +58,17 @@ Opcional (fallback global, no recomendado en multi-tenant):
 4. Elegir/crear carpeta:
    - `GET /drive/picker/folders?tenant_id=default&parent_id=root`
    - `POST /drive/picker/folders?tenant_id=default`
-5. Guardar IDs por tenant:
+5. Verificar estructura RECIBOX/INPUT:
+   - `GET /drive/picker/recibox-structure/check?tenant_id=default&parent_id=root`
+6. Si falta INPUT pero RECIBOX existe:
+   - `POST /drive/picker/recibox-input?tenant_id=default`
+7. Guardar IDs por tenant:
    - `PUT /tenants/default/drive-config`
-6. Verificar acceso:
+8. Verificar acceso:
    - `GET /drive/files?tenant_id=default`
-7. Encolar proceso:
+9. Encolar proceso:
    - `POST /ingest/drive?tenant_id=default`
-8. Seguir estado:
+10. Seguir estado:
    - `GET /jobs/{job_id}`
 
 ## Notas

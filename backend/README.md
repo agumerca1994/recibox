@@ -91,7 +91,8 @@ POST /drive/picker/folders?tenant_id=acme
 PUT /tenants/acme/drive-config
 {
   "drive_input_folder_id": "<ID_INPUT>",
-  "drive_root_folder_id": "<ID_ROOT>"
+  "drive_root_folder_id": "<ID_ROOT_PARENT>",
+  "drive_recibox_folder_id": "<ID_RECIBOX>"
 }
 ```
 4) Leer configuracion actual:
@@ -105,10 +106,15 @@ Si no hay configuracion custom del tenant, el sistema puede usar fallback de:
 
 Si esos fallback no estan definidos, el tenant debe configurar carpetas antes de usar endpoints de Drive.
 
+Recomendado en multi-tenant:
+- `drive_root_folder_id`: carpeta padre elegida por el usuario (ej: `root`)
+- `drive_recibox_folder_id`: carpeta `RECIBOX` donde viven empleados/anios
+- `drive_input_folder_id`: carpeta `#0 INPUT`
+
 ## Dev vs Prod
 
 - Dev: usar `backend/.env`.
-- Prod: usar variables/mounts en `deploy/easypanel/docker-compose.yml` (o UI de EasyPanel).
+- Prod: usar variables/mounts en `docker-compose.yml` (o UI de EasyPanel).
 
 En ambos casos, la app dentro del contenedor debe leer rutas internas como:
 - `/run/secrets/service-account.json`

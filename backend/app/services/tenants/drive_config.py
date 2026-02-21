@@ -15,7 +15,12 @@ class TenantDriveConfig:
     drive_input_folder_id: str
     drive_root_folder_id: str
     source: str
+    drive_recibox_folder_id: str | None = None
     updated_at: str | None = None
+
+    @property
+    def recibox_folder_id(self) -> str:
+        return (self.drive_recibox_folder_id or self.drive_root_folder_id).strip()
 
 
 def _key(tenant_id: str) -> str:
@@ -48,12 +53,14 @@ def load_tenant_drive_config(redis_conn: Redis, tenant_id: str) -> TenantDriveCo
 
     input_id = str(payload.get("drive_input_folder_id", "")).strip()
     root_id = str(payload.get("drive_root_folder_id", "")).strip()
+    recibox_id = str(payload.get("drive_recibox_folder_id", "")).strip()
     if not input_id or not root_id:
         return None
     return TenantDriveConfig(
         tenant_id=tenant_id,
         drive_input_folder_id=input_id,
         drive_root_folder_id=root_id,
+        drive_recibox_folder_id=recibox_id or None,
         source="tenant",
         updated_at=payload.get("updated_at"),
     )
@@ -65,6 +72,7 @@ def save_tenant_drive_config(
     *,
     drive_input_folder_id: str,
     drive_root_folder_id: str,
+    drive_recibox_folder_id: str | None = None,
 ) -> TenantDriveConfig:
     input_id = drive_input_folder_id.strip()
     root_id = drive_root_folder_id.strip()
@@ -72,11 +80,13 @@ def save_tenant_drive_config(
         raise ValueError("drive_input_folder_id is required")
     if not root_id:
         raise ValueError("drive_root_folder_id is required")
+    recibox_id = (drive_recibox_folder_id or "").strip()
 
     cfg = TenantDriveConfig(
         tenant_id=tenant_id,
         drive_input_folder_id=input_id,
         drive_root_folder_id=root_id,
+        drive_recibox_folder_id=recibox_id or None,
         source="tenant",
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -103,5 +113,6 @@ def resolve_tenant_drive_config(redis_conn: Redis, tenant_id: str) -> TenantDriv
         tenant_id=tenant_id,
         drive_input_folder_id=default_input,
         drive_root_folder_id=default_root,
+        drive_recibox_folder_id=None,
         source="default_env",
     )

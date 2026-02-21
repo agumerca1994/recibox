@@ -75,13 +75,26 @@ Usar `tenant_id=acme` (o el que prefieras).
 }
 ```
    - Por defecto tambien guarda config del tenant (`save_as_tenant_config=true`).
+4.b) Verificar estructura:
+   - `GET http://127.0.0.1:8000/drive/picker/recibox-structure/check?tenant_id=acme&parent_id=root`
+   - Respuestas esperadas: `complete`, `missing_input`, `missing_recibox`.
+4.c) Si existe `RECIBOX` pero falta `#0 INPUT`, crear solo input:
+   - `POST http://127.0.0.1:8000/drive/picker/recibox-input?tenant_id=acme`
+   - Body JSON:
+```json
+{
+  "recibox_folder_id": "<RECIBOX_FOLDER_ID>",
+  "root_parent_id": "root"
+}
+```
 5. (Alternativa manual) Guardar IDs por tenant:
    - `PUT http://127.0.0.1:8000/tenants/acme/drive-config`
    - Body JSON:
 ```json
 {
   "drive_input_folder_id": "<ID_INPUT>",
-  "drive_root_folder_id": "<ID_ROOT>"
+  "drive_root_folder_id": "<ID_ROOT_PARENT>",
+  "drive_recibox_folder_id": "<ID_RECIBOX>"
 }
 ```
 6. Verificar config guardada:

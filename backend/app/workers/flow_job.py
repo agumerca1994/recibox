@@ -139,7 +139,7 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
             result = _process_one(
                 f,
                 tenant_id=tenant_id,
-                drive_root_folder_id=cfg.drive_root_folder_id,
+                drive_root_folder_id=cfg.recibox_folder_id,
             )
             write_result(result, settings.results_log_path)
             if result.status == "ok":

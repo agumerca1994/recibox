@@ -52,7 +52,8 @@ PUT /tenants/{tenant_id}/drive-config
   Body:
     {
       "drive_input_folder_id": "...",
-      "drive_root_folder_id": "..."
+      "drive_root_folder_id": "...",
+      "drive_recibox_folder_id": "..."
     }
   Guarda config del tenant.
 
@@ -83,8 +84,23 @@ POST /drive/picker/recibox-structure?tenant_id=acme
       "parent_id": "root"
     }
   Por defecto guarda estos IDs como tenant-config:
-  - drive_root_folder_id = RECIBOX
+  - drive_root_folder_id = parent_id
+  - drive_recibox_folder_id = RECIBOX
   - drive_input_folder_id = #0 INPUT
+
+GET /drive/picker/recibox-structure/check?tenant_id=acme&parent_id=root
+  Verifica estructura en Drive:
+  - complete
+  - missing_input
+  - missing_recibox
+
+POST /drive/picker/recibox-input?tenant_id=acme
+  Crea (o reutiliza) #0 INPUT dentro de una carpeta RECIBOX existente.
+  Body:
+    {
+      "recibox_folder_id": "...",
+      "root_parent_id": "root"
+    }
 
 
 Drive - Operacion
