@@ -22,9 +22,7 @@ services:
       GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: "false"
-      DRIVE_INPUT_FOLDER_ID: your_input_folder_id
-      DRIVE_ROOT_FOLDER_ID: your_recibox_root_folder_id
+      OAUTH_REQUIRED_FOR_TENANT: "true"
       DRIVE_SUPPORTS_ALL_DRIVES: "true"
       DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
       DRIVE_PAGE_SIZE: "1000"
@@ -40,7 +38,7 @@ services:
     volumes:
       - recibox_tmp_data:/app/backend/tmp
       - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
-      - /opt/recibox-secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets/client_secret_155904889490-i1i3i5jc7d16kajo3mad6bgjeqqknacd.apps.googleusercontent.com.json:/run/secrets/oauth-client.json:ro
 
   recibox-worker:
     build:
@@ -58,12 +56,10 @@ services:
       REDIS_URL: redis://recibox-redis:6379/0
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.tu-dominio.com/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: "false"
-      DRIVE_INPUT_FOLDER_ID: your_input_folder_id
-      DRIVE_ROOT_FOLDER_ID: your_recibox_root_folder_id
+      OAUTH_REQUIRED_FOR_TENANT: "true"
       DRIVE_SUPPORTS_ALL_DRIVES: "true"
       DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
       DRIVE_PAGE_SIZE: "1000"
@@ -77,7 +73,7 @@ services:
     volumes:
       - recibox_tmp_data:/app/backend/tmp
       - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
-      - /opt/recibox-secrets/oauth-client.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets/client_secret_155904889490-i1i3i5jc7d16kajo3mad6bgjeqqknacd.apps.googleusercontent.com.json:/run/secrets/oauth-client.json:ro
 
 volumes:
   recibox_redis_data:

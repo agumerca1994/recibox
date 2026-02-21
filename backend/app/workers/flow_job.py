@@ -11,10 +11,11 @@ from app.services.storage.gdrive_ops import (
     ensure_year_folder,
     move_and_rename_file,
 )
+from app.services.tenants.drive_config import resolve_tenant_drive_config
 from pathlib import Path
 
 
-def _process_one(file_meta: dict, *, tenant_id: str) -> ProcessResult:
+def _process_one(file_meta: dict, *, tenant_id: str, drive_root_folder_id: str) -> ProcessResult:
     file_id = file_meta["id"]
     file_name = file_meta.get("name", "")
     local_dir = Path(settings.local_download_dir)
@@ -70,7 +71,7 @@ def _process_one(file_meta: dict, *, tenant_id: str) -> ProcessResult:
 
     try:
         emp_folder = ensure_employee_folder(
-            settings.drive_root_folder_id,
+            drive_root_folder_id,
             target["folder_employee"],
             tenant_id=tenant_id,
         )
@@ -113,9 +114,13 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
     lock_key = f"recibox:lock:{tenant_id}"
     redis_conn = get_redis()
     try:
+        cfg = resolve_tenant_drive_config(redis_conn, tenant_id)
+    except Exception as exc:
+        return {"status": "error", "message": f"Tenant config failed: {exc}"}
+    try:
         files = list(
             gdrive.list_files_in_folder(
-                settings.drive_input_folder_id,
+                cfg.drive_input_folder_id,
                 query_extra="mimeType = 'application/pdf'",
                 tenant_id=tenant_id,
             )
@@ -131,7 +136,11 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
         ok = 0
         err = 0
         for f in files[:total]:
-            result = _process_one(f, tenant_id=tenant_id)
+            result = _process_one(
+                f,
+                tenant_id=tenant_id,
+                drive_root_folder_id=cfg.drive_root_folder_id,
+            )
             write_result(result, settings.results_log_path)
             if result.status == "ok":
                 ok += 1

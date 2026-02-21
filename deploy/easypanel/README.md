@@ -19,7 +19,7 @@ Archivo base: `deploy/easypanel/docker-compose.yml`.
 Necesitas dos archivos JSON en el host del servidor:
 
 - `service-account.json`
-- `oauth-client.json`
+- `client_secret_*.apps.googleusercontent.com.json` (OAuth client)
 
 El compose los monta como:
 
@@ -34,13 +34,16 @@ Si cambias sus rutas en EasyPanel, actualiza también:
 ## 3) Variables obligatorias a ajustar
 
 - `GOOGLE_OAUTH_REDIRECT_URI`
+
+Sugerido para prod OAuth por tenant:
+
+- `OAUTH_REQUIRED_FOR_TENANT=true`
+- `OCR_ENABLED=false`
+
+Opcional (fallback global, no recomendado en multi-tenant):
+
 - `DRIVE_INPUT_FOLDER_ID`
 - `DRIVE_ROOT_FOLDER_ID`
-
-Opcional para MVP:
-
-- `OAUTH_REQUIRED_FOR_TENANT=false`
-- `OCR_ENABLED=false`
 
 ## 4) Dominio y healthcheck
 
@@ -49,13 +52,22 @@ Opcional para MVP:
 
 ## 5) Flujo mínimo de prueba
 
-1. `GET /auth/google/login?tenant_id=default`
-2. Completar consentimiento de Google (se guarda token en `tmp/google_tokens`).
-3. `POST /ingest/drive?tenant_id=default`
-4. `GET /jobs/{job_id}`
+1. `GET /health`
+2. `GET /auth/google/login?tenant_id=default`
+3. Completar consentimiento de Google (se guarda token en `tmp/google_tokens`).
+4. Elegir/crear carpeta:
+   - `GET /drive/picker/folders?tenant_id=default&parent_id=root`
+   - `POST /drive/picker/folders?tenant_id=default`
+5. Guardar IDs por tenant:
+   - `PUT /tenants/default/drive-config`
+6. Verificar acceso:
+   - `GET /drive/files?tenant_id=default`
+7. Encolar proceso:
+   - `POST /ingest/drive?tenant_id=default`
+8. Seguir estado:
+   - `GET /jobs/{job_id}`
 
 ## Notas
 
 - `recibox_tmp_data` persiste tokens OAuth y descargas temporales entre reinicios.
 - No compartas Redis con otros sistemas en esta etapa; este stack ya trae su Redis.
-

@@ -1,13 +1,14 @@
-RECIBOX Backend API (sin auth, MVP)
-===================================
+RECIBOX Backend API
+===================
 
 Base URL
   http://<host>:<port>
 
 Notas
-  - Endpoints sin autenticacion por ahora.
   - Respuestas en JSON salvo descargas de archivo.
   - Errores devuelven HTTP 4xx/5xx con "detail".
+  - En modo OAuth obligatorio (`OAUTH_REQUIRED_FOR_TENANT=true`), los endpoints de Drive
+    requieren token OAuth valido por tenant.
 
 
 Salud
@@ -17,66 +18,134 @@ GET /health
     {"status":"ok"}
 
 
-Drive - Archivos INPUT
-----------------------
-GET /drive/files
-  Lista PDFs en carpeta INPUT de Drive.
+OAuth (por tenant)
+------------------
+GET /auth/google/login?tenant_id=acme
+  Redirige a Google para consentimiento.
+
+GET /auth/google/callback?code=...&state=acme
+  Guarda token OAuth del tenant en `GOOGLE_OAUTH_TOKEN_DIR`.
   Respuesta:
-    {"count": <n>, "files": [ ... ]}
+    {"status":"ok","tenant_id":"acme"}
+
+GET /auth/google/status?tenant_id=acme
+  Verifica si el tenant tiene token OAuth, expiracion y validez.
+
+POST /auth/google/refresh?tenant_id=acme
+  Fuerza refresh del token OAuth usando refresh_token.
+
+POST /auth/google/unlink?tenant_id=acme
+  Revoca token en Google (si aplica), borra token local, limpia tenant-config/lock
+  y deja tenant bloqueado para endpoints Drive hasta relink.
+
+POST /auth/google/unlink?tenant_id=acme&clear_drive_config=false&disable_tenant=false
+  Variante del mismo endpoint: conserva config y no bloquea tenant.
 
 
-Drive - Carpetas de empleados
------------------------------
-GET /drive/employees
-  Lista carpetas dentro de la carpeta raiz RECIBOX.
-  Respuesta:
-    {"count": <n>, "folders": [ ... ]}
+Tenant Drive Config (Redis JSON, MVP)
+-------------------------------------
+GET /tenants/{tenant_id}/drive-config
+  Obtiene configuracion de carpetas del tenant.
+  Si no existe config custom, usa fallback desde `.env` (si esta definido).
+
+PUT /tenants/{tenant_id}/drive-config
+  Body:
+    {
+      "drive_input_folder_id": "...",
+      "drive_root_folder_id": "..."
+    }
+  Guarda config del tenant.
+
+DELETE /tenants/{tenant_id}/drive-config
+  Elimina config custom del tenant (vuelve al fallback de `.env` si existe).
 
 
-Drive - Carpetas de anios por empleado
---------------------------------------
-GET /drive/employees/{employee_folder_id}/years
+Drive Picker (post-login OAuth)
+-------------------------------
+GET /drive/picker/folders?tenant_id=acme&parent_id=root
+  Lista carpetas hijas del `parent_id` para que el usuario elija.
+  `parent_id` por defecto: `root`.
+
+POST /drive/picker/folders?tenant_id=acme
+  Body:
+    {
+      "parent_id": "...",
+      "name": "Nueva Carpeta"
+    }
+  Crea carpeta y devuelve su id.
+
+POST /drive/picker/recibox-structure?tenant_id=acme
+  Crea (o reutiliza) esta estructura:
+    <parent_id>/RECIBOX
+    <parent_id>/RECIBOX/#0 INPUT
+  Body:
+    {
+      "parent_id": "root"
+    }
+  Por defecto guarda estos IDs como tenant-config:
+  - drive_root_folder_id = RECIBOX
+  - drive_input_folder_id = #0 INPUT
+
+
+Drive - Operacion
+-----------------
+GET /drive/files?tenant_id=acme
+  Lista PDFs en carpeta INPUT del tenant (segun tenant-config o fallback `.env`).
+
+GET /drive/employees?tenant_id=acme
+  Lista carpetas dentro de la carpeta raiz RECIBOX del tenant.
+
+POST /drive/employees?tenant_id=acme
+  Crea (o reutiliza) carpeta de empleado dentro de la raiz del tenant.
+  Body:
+    {
+      "employee_name": "Juan Perez"
+    }
+
+GET /drive/employees/{employee_folder_id}/years?tenant_id=acme
   Lista carpetas dentro de la carpeta del empleado.
-  Respuesta:
-    {"count": <n>, "folders": [ ... ]}
 
+POST /drive/employees/{employee_folder_id}/years?tenant_id=acme
+  Crea (o reutiliza) carpeta de anio dentro de la carpeta del empleado.
+  Body:
+    {
+      "year": "2026"
+    }
 
-Drive - Archivos dentro de una carpeta
---------------------------------------
-GET /drive/folders/{folder_id}/files
+GET /drive/employees/{employee_folder_id}/files?tenant_id=acme
+  Lista archivos dentro de la carpeta del empleado.
+
+GET /drive/folders/{folder_id}/files?tenant_id=acme
   Lista archivos dentro de la carpeta indicada.
-  Respuesta:
-    {"count": <n>, "files": [ ... ]}
 
-
-Drive - Descargar archivo
--------------------------
-GET /drive/files/{file_id}/download
+GET /drive/files/{file_id}/download?tenant_id=acme
   Descarga un PDF desde Drive y lo devuelve como application/pdf.
 
 
 Procesamiento (RQ + Redis)
 --------------------------
-POST /ingest/drive?tenant_id=default
+POST /ingest/drive?tenant_id=acme
   Encola el procesamiento completo.
   Respuesta:
-    {"status":"queued","job_id":"...","tenant_id":"default"}
+    {
+      "status":"queued",
+      "job_id":"...",
+      "tenant_id":"acme",
+      "drive_config_source":"tenant|default_env"
+    }
 
 GET /jobs/{job_id}
   Estado del job.
-  Respuesta:
-    {
-      "job_id": "...",
-      "status": "queued|started|finished|failed|canceled",
-      "result": {...} | null,
-      "created_at": "...",
-      "enqueued_at": "...",
-      "started_at": "...",
-      "ended_at": "...",
-      "duration_seconds": <float|null>
-    }
 
 POST /jobs/{job_id}/stop
-  Solicita detener un job en ejecucion y libera el lock del tenant.
-  Respuesta:
-    {"status":"stop_requested","job_id":"...","tenant_id":"..."}
+  Solicita detener un job en ejecucion y libera lock del tenant.
+
+
+Orden recomendado (OAuth + tenant)
+----------------------------------
+1) GET /health
+2) GET /auth/google/login?tenant_id=acme
+3) GET /drive/picker/folders?tenant_id=acme&parent_id=root
+4) POST /tenants/acme/drive-config
+5) GET /drive/files?tenant_id=acme
+6) POST /ingest/drive?tenant_id=acme

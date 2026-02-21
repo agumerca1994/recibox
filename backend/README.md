@@ -44,8 +44,8 @@ Módulos previstos:
 3) Compartir la carpeta INPUT y la carpeta raíz RECIBOX con el email de la cuenta de servicio.
 4) Configurar `.env` con:
    - `GOOGLE_APPLICATION_CREDENTIALS`
-   - `DRIVE_INPUT_FOLDER_ID`
-   - `DRIVE_ROOT_FOLDER_ID`
+   - (Opcional fallback) `DRIVE_INPUT_FOLDER_ID`
+   - (Opcional fallback) `DRIVE_ROOT_FOLDER_ID`
    - (Opcional) `GOOGLE_SUBJECT` si usas delegación de dominio.
 
 ## OAuth 2.0 (usuario final por tenant)
@@ -68,6 +68,55 @@ GET /auth/google/callback?code=...&state=acme
 
 Si `OAUTH_REQUIRED_FOR_TENANT=true`, el backend bloqueara el uso de service account
 para tenants sin token OAuth.
+
+## Configuracion de carpetas por tenant (Redis, MVP)
+
+Despues del login OAuth, cada tenant puede elegir o crear sus carpetas de Drive y
+guardar los IDs sin tocar `.env`.
+
+1) Listar carpetas para seleccionar:
+```
+GET /drive/picker/folders?tenant_id=acme&parent_id=root
+```
+2) Crear carpeta nueva (opcional):
+```
+POST /drive/picker/folders?tenant_id=acme
+{
+  "parent_id": "<ID_PADRE>",
+  "name": "RECIBOX ACME"
+}
+```
+3) Guardar configuracion del tenant:
+```
+PUT /tenants/acme/drive-config
+{
+  "drive_input_folder_id": "<ID_INPUT>",
+  "drive_root_folder_id": "<ID_ROOT>"
+}
+```
+4) Leer configuracion actual:
+```
+GET /tenants/acme/drive-config
+```
+
+Si no hay configuracion custom del tenant, el sistema puede usar fallback de:
+- `DRIVE_INPUT_FOLDER_ID`
+- `DRIVE_ROOT_FOLDER_ID`
+
+Si esos fallback no estan definidos, el tenant debe configurar carpetas antes de usar endpoints de Drive.
+
+## Dev vs Prod
+
+- Dev: usar `backend/.env`.
+- Prod: usar variables/mounts en `deploy/easypanel/docker-compose.yml` (o UI de EasyPanel).
+
+En ambos casos, la app dentro del contenedor debe leer rutas internas como:
+- `/run/secrets/service-account.json`
+- `/run/secrets/oauth-client.json`
+
+Para prod con OAuth por tenant:
+- `OAUTH_REQUIRED_FOR_TENANT=true`
+- `GOOGLE_OAUTH_REDIRECT_URI=https://api.recibox.com.ar/auth/google/callback`
 
 ## Prueba rápida de conexión
 

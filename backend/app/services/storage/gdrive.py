@@ -76,9 +76,12 @@ def list_files_in_folder(
             break
 
 
-def list_new_files(*, tenant_id: str | None = None) -> Iterable[dict]:
+def list_new_files(*, tenant_id: str | None = None, input_folder_id: str | None = None) -> Iterable[dict]:
+    folder_id = (input_folder_id or settings.drive_input_folder_id or "").strip()
+    if not folder_id:
+        raise RuntimeError("Drive input folder id is not configured")
     return list_files_in_folder(
-        settings.drive_input_folder_id,
+        folder_id,
         query_extra="mimeType = 'application/pdf'",
         tenant_id=tenant_id,
     )

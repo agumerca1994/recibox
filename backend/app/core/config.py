@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     google_oauth_scopes: str = "https://www.googleapis.com/auth/drive"
     google_oauth_token_dir: str = "tmp/google_tokens"
     oauth_required_for_tenant: bool = False
-    drive_input_folder_id: str
-    drive_root_folder_id: str
+    drive_input_folder_id: str | None = None
+    drive_root_folder_id: str | None = None
     google_subject: str | None = None
     drive_supports_all_drives: bool = True
     drive_include_items_from_all_drives: bool = True
