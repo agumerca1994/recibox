@@ -37,8 +37,7 @@ services:
       - "8000"
     volumes:
       - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
-      - /opt/recibox-secrets/client_secret_155904889490-i1i3i5jc7d16kajo3mad6bgjeqqknacd.apps.googleusercontent.com.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets:/run/secrets:ro
 
   recibox-worker:
     build:
@@ -72,8 +71,7 @@ services:
       RQ_JOB_TIMEOUT_SECONDS: "900"
     volumes:
       - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets/service-account.json:/run/secrets/service-account.json:ro
-      - /opt/recibox-secrets/client_secret_155904889490-i1i3i5jc7d16kajo3mad6bgjeqqknacd.apps.googleusercontent.com.json:/run/secrets/oauth-client.json:ro
+      - /opt/recibox-secrets:/run/secrets:ro
 
 volumes:
   recibox_redis_data:
