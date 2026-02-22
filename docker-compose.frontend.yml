@@ -4,5 +4,5 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
-    expose:
-      - "80"
+    ports:
+      - "80:80"
