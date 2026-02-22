@@ -90,6 +90,13 @@ type AutomationRulesSnapshot = {
   notifyOnFailure: boolean
 }
 
+const sectionPathMap: Record<Section, string> = {
+  cuenta: '/cuentas',
+  procesar: '/procesar',
+  nomina: '/nomina',
+  configuracion: '/configuracion',
+}
+
 const filenameTokenOptions: Array<{ value: FilenameCustomFormat['part1']; label: string }> = [
   { value: 'MM', label: 'MM' },
   { value: 'YYYY', label: 'YYYY' },
@@ -274,6 +281,43 @@ function generateTenantId(): string {
   return `tenant-${Date.now().toString(36)}-${randomPart}`
 }
 
+function normalizePath(pathname: string): string {
+  const trimmed = pathname.trim()
+  if (!trimmed || trimmed === '/') {
+    return '/'
+  }
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+}
+
+function sectionFromPath(pathname: string): Section {
+  const value = normalizePath(pathname).toLowerCase()
+  if (value === '/procesar') {
+    return 'procesar'
+  }
+  if (value === '/nomina') {
+    return 'nomina'
+  }
+  if (value === '/configuracion') {
+    return 'configuracion'
+  }
+  return 'cuenta'
+}
+
+function updateSectionPath(section: Section, mode: 'push' | 'replace'): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const targetPath = sectionPathMap[section]
+  if (normalizePath(window.location.pathname) === targetPath) {
+    return
+  }
+  if (mode === 'replace') {
+    window.history.replaceState({ section }, '', targetPath)
+    return
+  }
+  window.history.pushState({ section }, '', targetPath)
+}
+
 function getProcessSortTimestamp(item: ProcessItem): number {
   const endedRaw = item.detail?.ended_at
   if (endedRaw) {
@@ -293,7 +337,12 @@ function App() {
     const saved = window.localStorage.getItem(tenantStorageKey)?.trim()
     return saved || defaultTenant
   })
-  const [activeSection, setActiveSection] = useState<Section>('cuenta')
+  const [activeSection, setActiveSection] = useState<Section>(() => {
+    if (typeof window === 'undefined') {
+      return 'cuenta'
+    }
+    return sectionFromPath(window.location.pathname)
+  })
   const [isConnected, setIsConnected] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
@@ -435,6 +484,12 @@ function App() {
     }
     window.localStorage.setItem(tenantStorageKey, tenantId)
   }, [tenantId])
+
+  useEffect(() => {
+    updateSectionPath(activeSection, 'replace')
+    // Run once to normalize initial path (e.g. "/" -> "/cuentas").
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const createStorageStructure = useCallback(async () => {
     const parentId = pendingStructureData?.parentId || 'root'
@@ -835,7 +890,7 @@ function App() {
     }
 
     setIsConnected(false)
-    setActiveSection('cuenta')
+    applySectionChange('cuenta', 'replace')
     setOauthFeedback({ type: null, text: '' })
     setStorageInfo(null)
     setStorageError('')
@@ -949,6 +1004,32 @@ function App() {
     void loadPendingFiles()
   }, [loadPendingFiles])
 
+  const applySectionChange = useCallback(
+    (section: Section, mode: 'push' | 'replace' | 'none' = 'push') => {
+      if ((section === 'procesar' || section === 'nomina' || section === 'configuracion') && !isConnected) {
+        setShowConnectRequiredModal(true)
+        setActiveSection('cuenta')
+        updateSectionPath('cuenta', 'replace')
+        return
+      }
+
+      setActiveSection(section)
+      if (mode !== 'none') {
+        updateSectionPath(section, mode)
+      }
+      if (section === 'procesar') {
+        refreshPendingFiles()
+      }
+      if (section === 'nomina') {
+        void loadNominaEmployees()
+      }
+      if (section === 'configuracion') {
+        void loadProcessingPreferences()
+      }
+    },
+    [isConnected, loadNominaEmployees, loadProcessingPreferences, refreshPendingFiles],
+  )
+
   useEffect(() => {
     if (activeSection !== 'procesar' || !isConnected) {
       return
@@ -982,23 +1063,26 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [activeSection, isConnected, refreshPendingFiles])
 
-  function handleSectionChange(section: Section) {
-    if ((section === 'procesar' || section === 'nomina' || section === 'configuracion') && !isConnected) {
-      setShowConnectRequiredModal(true)
-      setActiveSection('cuenta')
+  useEffect(() => {
+    function onPopState() {
+      applySectionChange(sectionFromPath(window.location.pathname), 'none')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [applySectionChange])
+
+  useEffect(() => {
+    if (initialLoading || isConnected) {
       return
     }
+    if (activeSection === 'procesar' || activeSection === 'nomina' || activeSection === 'configuracion') {
+      setShowConnectRequiredModal(true)
+      applySectionChange('cuenta', 'replace')
+    }
+  }, [activeSection, applySectionChange, initialLoading, isConnected])
 
-    setActiveSection(section)
-    if (section === 'procesar') {
-      refreshPendingFiles()
-    }
-    if (section === 'nomina') {
-      void loadNominaEmployees()
-    }
-    if (section === 'configuracion') {
-      void loadProcessingPreferences()
-    }
+  function handleSectionChange(section: Section) {
+    applySectionChange(section, 'push')
   }
 
   async function triggerProcess() {
@@ -1733,7 +1817,7 @@ function App() {
                 type="button"
                 className="modal-primary"
                 onClick={() => {
-                  setActiveSection('cuenta')
+                  applySectionChange('cuenta', 'replace')
                   setShowConnectRequiredModal(false)
                 }}
               >
