@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from pathlib import Path
 import json
+from urllib.parse import quote
 from pydantic import BaseModel
 from rq.command import send_stop_job_command
 from rq.job import Job
@@ -630,6 +631,7 @@ def _oauth_popup_callback_html(tenant_id: str, ok: bool, message: str) -> str:
         "message": message,
     }
     payload_json = json.dumps(payload)
+    payload_param = quote(payload_json, safe="")
     return f"""<!doctype html>
 <html lang="es">
   <head>
@@ -645,17 +647,30 @@ def _oauth_popup_callback_html(tenant_id: str, ok: bool, message: str) -> str:
   <body>
     <h3 class="{("ok" if ok else "error")}">{("Cuenta conectada correctamente" if ok else "Error al conectar la cuenta")}</h3>
     <p>{message}</p>
-    <script>
-      (function () {{
-        const payload = {payload_json};
-        if (window.opener) {{
-          window.opener.postMessage(payload, "*");
-        }}
-        setTimeout(function () {{ window.close(); }}, 120);
-      }})();
-    </script>
+    <script src="/auth/google/popup-bridge.js?payload={payload_param}"></script>
   </body>
 </html>"""
+
+
+@router.get("/auth/google/popup-bridge.js")
+async def google_oauth_popup_bridge(payload: str = Query("{}")):
+    try:
+        parsed = json.loads(payload)
+        if not isinstance(parsed, dict):
+            parsed = {}
+    except Exception:
+        parsed = {}
+    payload_json = json.dumps(parsed)
+    js = f"""(function () {{
+  const payload = {payload_json};
+  try {{
+    if (window.opener) {{
+      window.opener.postMessage(payload, "*");
+    }}
+  }} catch (_err) {{}}
+  setTimeout(function () {{ window.close(); }}, 120);
+}})();"""
+    return Response(content=js, media_type="application/javascript")
 
 
 @router.get("/auth/google/callback")

@@ -273,14 +273,6 @@ function formatDuration(seconds?: number | null): string {
   return `${minutes}m ${rem}s`
 }
 
-function generateTenantId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `tenant-${crypto.randomUUID()}`
-  }
-  const randomPart = Math.random().toString(36).slice(2, 10)
-  return `tenant-${Date.now().toString(36)}-${randomPart}`
-}
-
 function normalizePath(pathname: string): string {
   const trimmed = pathname.trim()
   if (!trimmed || trimmed === '/') {
@@ -855,7 +847,7 @@ function App() {
   }, [showProfilePopover])
 
   function connectGoogleDrive() {
-    const nextTenantId = generateTenantId()
+    const nextTenantId = (tenantId || defaultTenant).trim() || defaultTenant
     setTenantId(nextTenantId)
     const url = `${apiBasePath}/auth/google/login?tenant_id=${encodeURIComponent(nextTenantId)}&popup=true`
     const width = 560
