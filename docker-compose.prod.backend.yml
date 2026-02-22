@@ -8,12 +8,16 @@ services:
       POSTGRES_PASSWORD: recibox
     volumes:
       - recibox_prod_postgres_data:/var/lib/postgresql/data
+    networks:
+      - prod-internal
 
   recibox-prod-redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
       - recibox_prod_redis_data:/data
+    networks:
+      - prod-internal
 
   recibox-prod-api:
     build:
@@ -53,6 +57,7 @@ services:
       - recibox_prod_tmp_data:/app/backend/tmp
       - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
     networks:
+      - prod-internal
       - easypanel
 
   recibox-prod-worker:
@@ -93,6 +98,7 @@ services:
       - recibox_prod_tmp_data:/app/backend/tmp
       - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
     networks:
+      - prod-internal
       - easypanel
 
 volumes:
@@ -101,5 +107,7 @@ volumes:
   recibox_prod_tmp_data:
 
 networks:
+  prod-internal:
+    driver: bridge
   easypanel:
     external: true
