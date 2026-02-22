@@ -1,0 +1,80 @@
+.auth-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #ececec;
+  padding: 24px;
+}
+
+.auth-gate-card {
+  width: min(460px, 100%);
+  border: 1px solid #d4d4d8;
+  border-radius: 16px;
+  background: #efefef;
+  padding: 24px;
+}
+
+.auth-gate-card h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #111827;
+}
+
+.auth-gate-card p {
+  margin: 0 0 16px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.auth-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.auth-gate-form {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-gate-label {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.auth-gate-input {
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.auth-gate-btn {
+  min-width: 170px;
+  height: 44px;
+  border-radius: 10px;
+  border: none;
+  background: #d97706;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-gate-btn-secondary {
+  background: #334155;
+}
+
+.auth-gate-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.auth-gate-error {
+  margin-top: 12px;
+  color: #b91c1c;
+  font-size: 13px;
+}

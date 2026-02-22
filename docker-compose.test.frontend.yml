@@ -1,0 +1,17 @@
+services:
+  recibox-test-frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: https://api.test.recibox.com.ar
+      API_UPSTREAM_HOST: api.test.recibox.com.ar
+    expose:
+      - "80"
+    networks:
+      - easypanel
+
+networks:
+  easypanel:
+    external: true

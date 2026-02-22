@@ -1,0 +1,17 @@
+services:
+  recibox-prod-frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: https://api.recibox.com.ar
+      API_UPSTREAM_HOST: api.recibox.com.ar
+    expose:
+      - "80"
+    networks:
+      - easypanel
+
+networks:
+  easypanel:
+    external: true
