@@ -81,6 +81,11 @@ Configurar las mismas variables en EasyPanel para cada stack frontend:
 
 Agregar esos dominios en Firebase Authentication -> Authorized domains.
 
+Importante:
+
+- Las variables `VITE_FIREBASE_*` se inyectan en `npm run build` (tiempo de build).
+- Si cambias una credencial en EasyPanel o `.env`, debes reconstruir la imagen frontend.
+
 Nota:
 
 - Esta integracion autentica usuarios en el frontend.
