@@ -17,6 +17,8 @@ import {
   putTenantDriveConfig,
   unlinkGoogleOAuth,
 } from './api/recibox'
+import { signOutFirebaseUser } from './auth/firebase'
+import { authEmailStorageKey, tenantStorageKey } from './auth/session'
 import type {
   DriveFile,
   DriveFolder,
@@ -28,7 +30,6 @@ import type {
 
 const defaultTenant = (import.meta.env.VITE_TENANT_ID || 'acme').trim() || 'acme'
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
-const tenantStorageKey = 'recibox:tenant-id'
 
 type OAuthMessage = {
   source?: string
@@ -273,14 +274,6 @@ function formatDuration(seconds?: number | null): string {
   return `${minutes}m ${rem}s`
 }
 
-function generateTenantId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `tenant-${crypto.randomUUID()}`
-  }
-  const randomPart = Math.random().toString(36).slice(2, 10)
-  return `tenant-${Date.now().toString(36)}-${randomPart}`
-}
-
 function normalizePath(pathname: string): string {
   const trimmed = pathname.trim()
   if (!trimmed || trimmed === '/') {
@@ -405,6 +398,12 @@ function App() {
   const [, setAutomationRulesSaving] = useState(false)
   const [automationRulesSuccess, setAutomationRulesSuccess] = useState('')
   const [showProfilePopover, setShowProfilePopover] = useState(false)
+  const [authEmail] = useState<string>(() => {
+    if (typeof window === 'undefined') {
+      return ''
+    }
+    return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
+  })
   const profilePopoverRef = useRef<HTMLDivElement | null>(null)
 
   const syncTenantDriveConfig = useCallback(
@@ -855,7 +854,7 @@ function App() {
   }, [showProfilePopover])
 
   function connectGoogleDrive() {
-    const nextTenantId = generateTenantId()
+    const nextTenantId = (tenantId || window.localStorage.getItem(tenantStorageKey) || defaultTenant).trim()
     setTenantId(nextTenantId)
     const url = `${apiBasePath}/auth/google/login?tenant_id=${encodeURIComponent(nextTenantId)}&popup=true`
     const width = 560
@@ -874,6 +873,19 @@ function App() {
     }
 
     setOauthFeedback({ type: null, text: '' })
+  }
+
+  async function logoutCurrentSession() {
+    try {
+      await signOutFirebaseUser()
+    } catch (error) {
+      setOauthFeedback({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo cerrar sesión.',
+      })
+    } finally {
+      setShowProfilePopover(false)
+    }
   }
 
   async function disconnectGoogleDrive() {
@@ -1214,6 +1226,10 @@ function App() {
               <div className="profile-popover" role="dialog" aria-label="Detalle de usuario">
                 <p className="profile-popover-title">Detalle del usuario</p>
                 <p className="profile-popover-line">
+                  <span>Email</span>
+                  <strong>{authEmail || 'N/D'}</strong>
+                </p>
+                <p className="profile-popover-line">
                   <span>Tenant</span>
                   <strong>{tenantId}</strong>
                 </p>
@@ -1221,7 +1237,7 @@ function App() {
                   <span>Estado</span>
                   <strong>{isConnected ? 'Conectado' : 'Sin conectar'}</strong>
                 </p>
-                <button type="button" className="profile-logout-btn" onClick={() => {}}>
+                <button type="button" className="profile-logout-btn" onClick={() => void logoutCurrentSession()}>
                   Cerrar sesion
                 </button>
               </div>

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     rq_job_timeout_seconds: int = 900
 
+    postgres_url: str | None = None
+    firebase_project_id: str | None = None
+    firebase_credentials_path: str | None = None
+
     class Config:
         env_file = ".env"
 

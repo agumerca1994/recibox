@@ -1,5 +1,5 @@
 services:
-  recibox-frontend:
+  recibox-prod-frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile

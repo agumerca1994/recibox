@@ -42,3 +42,61 @@ Configurado en:
    - `https://api.recibox.com.ar/health`
 4. Revisar en DevTools que requests del frontend salgan como:
    - `https://recibox.com.ar/api/...` (proxied por Nginx al subdominio API).
+
+---
+
+# RECIBOX Test en EasyPanel (nombres explicitos)
+
+Composes recomendados:
+
+- `docker-compose.test.backend.yml`
+- `docker-compose.test.frontend.yml`
+
+Tambien existe `docker-compose.test.yml` (stack completo) para casos puntuales.
+
+## Fuente en EasyPanel (backend test)
+
+- URL repo: mismo repositorio
+- Rama: `test`
+- Ruta de compilacion: `/`
+- Archivo Docker Compose: `docker-compose.test.backend.yml`
+
+## Servicios esperados (backend test)
+
+- `recibox-test-postgres`
+- `recibox-test-redis`
+- `recibox-test-api`
+- `recibox-test-worker`
+
+## Fuente en EasyPanel (frontend test)
+
+- URL repo: mismo repositorio
+- Rama: `test`
+- Ruta de compilacion: `/`
+- Archivo Docker Compose: `docker-compose.test.frontend.yml`
+
+Servicio esperado:
+
+- `recibox-test-frontend`
+
+## Publicar dominios
+
+1. `api.test.recibox.com.ar` -> servicio `recibox-test-api` (HTTP, puerto interno `8000`)
+2. `backoffice.test.recibox.com.ar` -> servicio `recibox-test-frontend` (HTTP, puerto interno `80`)
+
+## Secrets de test
+
+El compose test usa por default:
+
+- `${TEST_SECRETS_DIR:-/opt/recibox-secrets-test}:/run/secrets:ro`
+
+En ese directorio del servidor debes tener:
+
+- `/opt/recibox-secrets-test/service-account.json`
+- `/opt/recibox-secrets-test/firebase-admin.json`
+- `/opt/recibox-secrets-test/oauth-client.json`
+
+Opcionalmente define en EasyPanel:
+
+- `TEST_SECRETS_DIR`
+- `FIREBASE_PROJECT_ID` (proyecto Firebase de test)

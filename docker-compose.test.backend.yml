@@ -1,39 +1,39 @@
 services:
-  recibox-postgres:
+  recibox-test-postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: recibox
+      POSTGRES_DB: recibox_test
       POSTGRES_USER: recibox
       POSTGRES_PASSWORD: recibox
     volumes:
-      - recibox_postgres_data:/var/lib/postgresql/data
+      - recibox_test_postgres_data:/var/lib/postgresql/data
 
-  recibox-redis:
+  recibox-test-redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
-      - recibox_redis_data:/data
+      - recibox_test_redis_data:/data
 
-  recibox-api:
+  recibox-test-api:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      - recibox-postgres
-      - recibox-redis
+      - recibox-test-postgres
+      - recibox-test-redis
     environment:
       APP_NAME: recibox-backend
-      ENV: prod
+      ENV: test
       LOG_LEVEL: INFO
-      REDIS_URL: redis://recibox-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-postgres:5432/recibox
+      REDIS_URL: redis://recibox-test-redis:6379/0
+      POSTGRES_URL: postgresql://recibox:recibox@recibox-test-postgres:5432/recibox_test
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/service-account.json
-      FIREBASE_PROJECT_ID: recibox-76a50
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.test.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
       OAUTH_REQUIRED_FOR_TENANT: "true"
@@ -50,30 +50,32 @@ services:
     expose:
       - "8000"
     volumes:
-      - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets:/run/secrets:ro
+      - recibox_test_tmp_data:/app/backend/tmp
+      - ${TEST_SECRETS_DIR:-/opt/recibox-secrets-test}:/run/secrets:ro
+    networks:
+      - easypanel
 
-  recibox-worker:
+  recibox-test-worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      - recibox-postgres
-      - recibox-redis
-      - recibox-api
-    command: ["rq", "worker", "recibox", "--url", "redis://recibox-redis:6379/0"]
+      - recibox-test-postgres
+      - recibox-test-redis
+      - recibox-test-api
+    command: ["rq", "worker", "recibox", "--url", "redis://recibox-test-redis:6379/0"]
     environment:
       APP_NAME: recibox-backend
-      ENV: prod
+      ENV: test
       LOG_LEVEL: INFO
-      REDIS_URL: redis://recibox-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-postgres:5432/recibox
+      REDIS_URL: redis://recibox-test-redis:6379/0
+      POSTGRES_URL: postgresql://recibox:recibox@recibox-test-postgres:5432/recibox_test
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/service-account.json
-      FIREBASE_PROJECT_ID: recibox-76a50
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api.test.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
       OAUTH_REQUIRED_FOR_TENANT: "true"
@@ -88,20 +90,16 @@ services:
       RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
       RQ_JOB_TIMEOUT_SECONDS: "900"
     volumes:
-      - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets:/run/secrets:ro
-
-  recibox-frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - recibox-api
-    expose:
-      - "80"
+      - recibox_test_tmp_data:/app/backend/tmp
+      - ${TEST_SECRETS_DIR:-/opt/recibox-secrets-test}:/run/secrets:ro
+    networks:
+      - easypanel
 
 volumes:
-  recibox_postgres_data:
-  recibox_redis_data:
-  recibox_tmp_data:
+  recibox_test_postgres_data:
+  recibox_test_redis_data:
+  recibox_test_tmp_data:
+
+networks:
+  easypanel:
+    external: true

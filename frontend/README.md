@@ -16,6 +16,11 @@ VITE_DEV_PORT=5173
 VITE_API_BASE_PATH=/api
 VITE_API_TARGET=http://127.0.0.1:8000
 VITE_TENANT_ID=acme
+VITE_FIREBASE_AUTH_ENABLED=false
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_APP_ID=
 ```
 
 ## Ejecutar en local (WSL)
@@ -46,3 +51,37 @@ docker build -f frontend/Dockerfile -t recibox-frontend .
 ```
 
 Este contenedor sirve el frontend con Nginx y hace proxy de `/api/*` al servicio `recibox-api:8000` dentro de la red Docker.
+
+## Firebase Auth (frontend)
+
+La autenticacion Firebase corre en frontend y queda protegida por `AuthGate` cuando:
+
+- `VITE_FIREBASE_AUTH_ENABLED=true`
+
+Variables requeridas:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_APP_ID`
+
+### Localhost
+
+1. Crear `frontend/.env.local`.
+2. Copiar variables de `frontend/.env.example`.
+3. Completar credenciales de tu proyecto Firebase.
+4. En Firebase Console, agregar `localhost` en dominios autorizados.
+
+### Produccion / Test
+
+Configurar las mismas variables en EasyPanel para cada stack frontend:
+
+- `backoffice.recibox.com.ar`
+- `backoffice.test.recibox.com.ar`
+
+Agregar esos dominios en Firebase Authentication -> Authorized domains.
+
+Nota:
+
+- Esta integracion autentica usuarios en el frontend.
+- Si luego quieres proteger endpoints backend con Firebase ID tokens, se puede agregar en API como siguiente paso.

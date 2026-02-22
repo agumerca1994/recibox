@@ -1,5 +1,5 @@
 services:
-  recibox-postgres:
+  recibox-prod-postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -7,31 +7,31 @@ services:
       POSTGRES_USER: recibox
       POSTGRES_PASSWORD: recibox
     volumes:
-      - recibox_postgres_data:/var/lib/postgresql/data
+      - recibox_prod_postgres_data:/var/lib/postgresql/data
 
-  recibox-redis:
+  recibox-prod-redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
-      - recibox_redis_data:/data
+      - recibox_prod_redis_data:/data
 
-  recibox-api:
+  recibox-prod-api:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      - recibox-postgres
-      - recibox-redis
+      - recibox-prod-postgres
+      - recibox-prod-redis
     environment:
       APP_NAME: recibox-backend
       ENV: prod
       LOG_LEVEL: INFO
-      REDIS_URL: redis://recibox-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-postgres:5432/recibox
+      REDIS_URL: redis://recibox-prod-redis:6379/0
+      POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/service-account.json
-      FIREBASE_PROJECT_ID: recibox-76a50
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
       GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
@@ -50,28 +50,30 @@ services:
     expose:
       - "8000"
     volumes:
-      - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets:/run/secrets:ro
+      - recibox_prod_tmp_data:/app/backend/tmp
+      - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
+    networks:
+      - easypanel
 
-  recibox-worker:
+  recibox-prod-worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      - recibox-postgres
-      - recibox-redis
-      - recibox-api
-    command: ["rq", "worker", "recibox", "--url", "redis://recibox-redis:6379/0"]
+      - recibox-prod-postgres
+      - recibox-prod-redis
+      - recibox-prod-api
+    command: ["rq", "worker", "recibox", "--url", "redis://recibox-prod-redis:6379/0"]
     environment:
       APP_NAME: recibox-backend
       ENV: prod
       LOG_LEVEL: INFO
-      REDIS_URL: redis://recibox-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-postgres:5432/recibox
+      REDIS_URL: redis://recibox-prod-redis:6379/0
+      POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/service-account.json
-      FIREBASE_PROJECT_ID: recibox-76a50
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
       GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
@@ -88,20 +90,16 @@ services:
       RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
       RQ_JOB_TIMEOUT_SECONDS: "900"
     volumes:
-      - recibox_tmp_data:/app/backend/tmp
-      - /opt/recibox-secrets:/run/secrets:ro
-
-  recibox-frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - recibox-api
-    expose:
-      - "80"
+      - recibox_prod_tmp_data:/app/backend/tmp
+      - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
+    networks:
+      - easypanel
 
 volumes:
-  recibox_postgres_data:
-  recibox_redis_data:
-  recibox_tmp_data:
+  recibox_prod_postgres_data:
+  recibox_prod_redis_data:
+  recibox_prod_tmp_data:
+
+networks:
+  easypanel:
+    external: true
