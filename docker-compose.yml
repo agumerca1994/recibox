@@ -73,6 +73,16 @@ services:
       - recibox_tmp_data:/app/backend/tmp
       - /opt/recibox-secrets:/run/secrets:ro
 
+  recibox-frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - recibox-api
+    expose:
+      - "80"
+
 volumes:
   recibox_redis_data:
   recibox_tmp_data:

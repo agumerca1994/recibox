@@ -12,10 +12,22 @@ from app.services.storage.gdrive_ops import (
     move_and_rename_file,
 )
 from app.services.tenants.drive_config import resolve_tenant_drive_config
+from app.services.tenants.processing_preferences import resolve_tenant_processing_preferences
 from pathlib import Path
 
 
-def _process_one(file_meta: dict, *, tenant_id: str, drive_root_folder_id: str) -> ProcessResult:
+def _process_one(
+    file_meta: dict,
+    *,
+    tenant_id: str,
+    drive_root_folder_id: str,
+    filename_format_mode: str,
+    filename_custom_format: dict | None,
+    employee_folder_number_mode: str,
+    employee_folder_number_custom_part1: str,
+    employee_folder_number_custom_part2: str,
+    auto_create_missing_employee_folder: bool,
+) -> ProcessResult:
     file_id = file_meta["id"]
     file_name = file_meta.get("name", "")
     local_dir = Path(settings.local_download_dir)
@@ -50,7 +62,14 @@ def _process_one(file_meta: dict, *, tenant_id: str, drive_root_folder_id: str) 
         )
 
     info = parse_fields(text)
-    target = classify(info)
+    target = classify(
+        info,
+        filename_format_mode=filename_format_mode,
+        filename_custom_format=filename_custom_format,
+        employee_folder_number_mode=employee_folder_number_mode,
+        employee_folder_number_custom_part1=employee_folder_number_custom_part1,
+        employee_folder_number_custom_part2=employee_folder_number_custom_part2,
+    )
 
     missing = []
     if not info.empleado:
@@ -74,7 +93,19 @@ def _process_one(file_meta: dict, *, tenant_id: str, drive_root_folder_id: str) 
             drive_root_folder_id,
             target["folder_employee"],
             tenant_id=tenant_id,
+            number_mode=employee_folder_number_mode,
+            custom_part1=employee_folder_number_custom_part1,
+            custom_part2=employee_folder_number_custom_part2,
+            create_if_missing=auto_create_missing_employee_folder,
         )
+        if not emp_folder:
+            return ProcessResult(
+                file_id=file_id,
+                status="error",
+                message="Carpeta de colaborador inexistente",
+                info=info,
+                target=target,
+            )
         year_folder = ensure_year_folder(
             emp_folder["id"],
             target["folder_year"],
@@ -115,6 +146,7 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
     redis_conn = get_redis()
     try:
         cfg = resolve_tenant_drive_config(redis_conn, tenant_id)
+        preferences = resolve_tenant_processing_preferences(redis_conn, tenant_id)
     except Exception as exc:
         return {"status": "error", "message": f"Tenant config failed: {exc}"}
     try:
@@ -140,6 +172,12 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
                 f,
                 tenant_id=tenant_id,
                 drive_root_folder_id=cfg.recibox_folder_id,
+                filename_format_mode=preferences.filename_format_mode,
+                filename_custom_format=preferences.filename_custom_format.__dict__,
+                employee_folder_number_mode=preferences.employee_folder_number_mode,
+                employee_folder_number_custom_part1=preferences.employee_folder_number_custom_part1,
+                employee_folder_number_custom_part2=preferences.employee_folder_number_custom_part2,
+                auto_create_missing_employee_folder=preferences.auto_create_missing_employee_folder,
             )
             write_result(result, settings.results_log_path)
             if result.status == "ok":

@@ -5,6 +5,7 @@ Este stack levanta RECIBOX como servicios separados dentro del mismo proyecto:
 - `recibox-api` (FastAPI)
 - `recibox-worker` (RQ worker)
 - `recibox-redis` (Redis para la cola)
+- `recibox-frontend` (React + Nginx)
 
 Archivo base: `docker-compose.yml`.
 
@@ -48,7 +49,9 @@ Opcional (fallback global, no recomendado en multi-tenant):
 ## 4) Dominio y healthcheck
 
 - Publica `recibox-api` con dominio/subdominio (ejemplo: `api.tudominio.com`).
-- Prueba: `GET /health`
+- Publica `recibox-frontend` con su dominio/subdominio (ejemplo: `app.tudominio.com`).
+- Prueba backend: `GET /health`
+- La UI frontend usa `/api/*` y Nginx lo proxy hacia `recibox-api:8000`.
 
 ## 5) Flujo mínimo de prueba
 

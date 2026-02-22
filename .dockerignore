@@ -10,7 +10,8 @@
 
 backend/.env
 backend/tmp
+frontend/node_modules
+frontend/dist
 test/credential
 *.pem
 *.key
-

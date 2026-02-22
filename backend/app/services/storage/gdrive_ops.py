@@ -36,7 +36,7 @@ def _next_employee_index(root_id: str, *, tenant_id: str | None = None) -> int:
     max_n = 0
     for folder in _list_folders(root_id, tenant_id=tenant_id):
         name = folder.get("name", "")
-        m = re.match(r"^#(\d+)\s+", name.strip())
+        m = re.match(r"^#?(\d+)\s+", name.strip())
         if m:
             try:
                 max_n = max(max_n, int(m.group(1)))
@@ -45,13 +45,33 @@ def _next_employee_index(root_id: str, *, tenant_id: str | None = None) -> int:
     return max_n + 1
 
 
-def ensure_employee_folder(root_id: str, empleado: str, *, tenant_id: str | None = None) -> dict:
+def ensure_employee_folder(
+    root_id: str,
+    empleado: str,
+    *,
+    tenant_id: str | None = None,
+    number_mode: str = "indexed_number",
+    custom_part1: str = "",
+    custom_part2: str = "",
+    create_if_missing: bool = True,
+) -> dict | None:
     existing = find_employee_folder(root_id, empleado, tenant_id=tenant_id)
     if existing:
         return existing
+    if not create_if_missing:
+        return None
 
-    idx = _next_employee_index(root_id, tenant_id=tenant_id)
-    folder_name = f"#{idx} {empleado}"
+    if number_mode == "no_index":
+        folder_name = empleado
+    elif number_mode == "custom":
+        fixed_prefix = f"{(custom_part1 or '').strip()}{(custom_part2 or '').strip()}".strip()
+        folder_name = f"{fixed_prefix} {empleado}".strip() if fixed_prefix else empleado
+    else:
+        idx = _next_employee_index(root_id, tenant_id=tenant_id)
+        if number_mode == "number_only":
+            folder_name = f"{idx} {empleado}"
+        else:
+            folder_name = f"#{idx} {empleado}"
     return gdrive.create_folder(root_id, folder_name, tenant_id=tenant_id)
 
 

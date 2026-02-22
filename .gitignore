@@ -19,6 +19,7 @@ venv/
 .env.*
 backend/.env
 backend/.env.*
+!frontend/.env.example
 *.pem
 *.key
 *client_secret*.json
