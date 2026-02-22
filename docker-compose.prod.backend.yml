@@ -33,10 +33,10 @@ services:
       LOG_LEVEL: INFO
       REDIS_URL: redis://recibox-prod-redis:6379/0
       POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
-      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
       GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
@@ -55,7 +55,7 @@ services:
       - "8000"
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
+      - ${PROD_SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
     networks:
       - prod-internal
       - easypanel
@@ -76,10 +76,10 @@ services:
       LOG_LEVEL: INFO
       REDIS_URL: redis://recibox-prod-redis:6379/0
       POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/service-account.json
-      FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
-      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
       GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
@@ -96,7 +96,7 @@ services:
       RQ_JOB_TIMEOUT_SECONDS: "900"
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${PROD_SECRETS_DIR:-/opt/recibox-secrets}:/run/secrets:ro
+      - ${PROD_SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
     networks:
       - prod-internal
       - easypanel
