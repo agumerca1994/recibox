@@ -77,7 +77,7 @@ Variables requeridas:
 Configurar las mismas variables en EasyPanel para cada stack frontend:
 
 - `backoffice.recibox.com.ar`
-- `backoffice.test.recibox.com.ar`
+- `backoffice-test.recibox.com.ar`
 
 Agregar esos dominios en Firebase Authentication -> Authorized domains.
 

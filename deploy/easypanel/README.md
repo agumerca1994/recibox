@@ -52,8 +52,6 @@ Composes recomendados:
 - `docker-compose.test.backend.yml`
 - `docker-compose.test.frontend.yml`
 
-Tambien existe `docker-compose.test.yml` (stack completo) para casos puntuales.
-
 ## Fuente en EasyPanel (backend test)
 
 - URL repo: mismo repositorio
@@ -81,8 +79,8 @@ Servicio esperado:
 
 ## Publicar dominios
 
-1. `api.test.recibox.com.ar` -> servicio `recibox-test-api` (HTTP, puerto interno `8000`)
-2. `backoffice.test.recibox.com.ar` -> servicio `recibox-test-frontend` (HTTP, puerto interno `80`)
+1. `api-test.recibox.com.ar` -> servicio `recibox-test-api` (HTTP, puerto interno `8000`)
+2. `backoffice-test.recibox.com.ar` -> servicio `recibox-test-frontend` (HTTP, puerto interno `80`)
 
 ## Secrets de test
 

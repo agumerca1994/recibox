@@ -8,12 +8,16 @@ services:
       POSTGRES_PASSWORD: recibox
     volumes:
       - recibox_test_postgres_data:/var/lib/postgresql/data
+    networks:
+      - test-internal
 
   recibox-test-redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
       - recibox_test_redis_data:/data
+    networks:
+      - test-internal
 
   recibox-test-api:
     build:
@@ -33,7 +37,7 @@ services:
       FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.test.recibox.com.ar/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api-test.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
       OAUTH_REQUIRED_FOR_TENANT: "true"
@@ -53,6 +57,7 @@ services:
       - recibox_test_tmp_data:/app/backend/tmp
       - ${TEST_SECRETS_DIR:-/opt/recibox-secrets-test}:/run/secrets:ro
     networks:
+      - test-internal
       - easypanel
 
   recibox-test-worker:
@@ -75,7 +80,7 @@ services:
       FIREBASE_CREDENTIALS_PATH: /run/secrets/firebase-admin.json
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/oauth-client.json
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.test.recibox.com.ar/auth/google/callback
+      GOOGLE_OAUTH_REDIRECT_URI: https://api-test.recibox.com.ar/auth/google/callback
       GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
       OAUTH_REQUIRED_FOR_TENANT: "true"
@@ -93,6 +98,7 @@ services:
       - recibox_test_tmp_data:/app/backend/tmp
       - ${TEST_SECRETS_DIR:-/opt/recibox-secrets-test}:/run/secrets:ro
     networks:
+      - test-internal
       - easypanel
 
 volumes:
@@ -101,5 +107,7 @@ volumes:
   recibox_test_tmp_data:
 
 networks:
+  test-internal:
+    driver: bridge
   easypanel:
     external: true
