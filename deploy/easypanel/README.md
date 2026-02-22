@@ -1,80 +1,44 @@
-# RECIBOX en EasyPanel (Proyecto 1)
+# RECIBOX en EasyPanel (Frontend + API externa)
 
-Este stack levanta RECIBOX como servicios separados dentro del mismo proyecto:
+Este setup asume que el backend ya esta desplegado por separado en:
 
-- `recibox-api` (FastAPI)
-- `recibox-worker` (RQ worker)
-- `recibox-redis` (Redis para la cola)
+- `https://api.recibox.com.ar`
+
+El `docker-compose.yml` de la raiz despliega solamente:
+
 - `recibox-frontend` (React + Nginx)
 
-Archivo base: `docker-compose.yml`.
+## 1) Archivo en la raiz
 
-## 1) Crear stack en el proyecto 1
+EasyPanel debe leer el compose desde la raiz del repo:
 
-1. En EasyPanel, entra al proyecto 1.
-2. Crea un nuevo servicio tipo Compose/Stack.
-3. Pega el contenido de `docker-compose.yml`.
+- `docker-compose.yml`
 
-## 2) Secretos (no subir a Git)
+## 2) Crear stack en EasyPanel
 
-Necesitas dos archivos JSON en el host del servidor:
+1. En EasyPanel, entra al proyecto.
+2. Crea un servicio tipo Compose/Stack.
+3. Usa el `docker-compose.yml` de la raiz.
+4. Publica el servicio `recibox-frontend` con el dominio:
+   - `recibox.com.ar`
 
-- `service-account.json`
-- `client_secret_*.apps.googleusercontent.com.json` (OAuth client)
+## 3) Conexion frontend -> API
 
-El compose los monta como:
+El frontend llama a `/api/*`.
+Nginx (dentro del contenedor frontend) hace proxy de `/api/*` hacia:
 
-- `/run/secrets/service-account.json`
-- `/run/secrets/oauth-client.json`
+- `https://api.recibox.com.ar/*`
 
-Si cambias sus rutas en EasyPanel, actualiza también:
+Configurado en:
 
-- `GOOGLE_APPLICATION_CREDENTIALS`
-- `GOOGLE_OAUTH_CLIENT_SECRETS`
+- `frontend/nginx.conf`
 
-## 3) Variables obligatorias a ajustar
+## 4) Verificaciones recomendadas
 
-- `GOOGLE_OAUTH_REDIRECT_URI`
-
-Sugerido para prod OAuth por tenant:
-
-- `OAUTH_REQUIRED_FOR_TENANT=true`
-- `OCR_ENABLED=false`
-
-Opcional (fallback global, no recomendado en multi-tenant):
-
-- `DRIVE_INPUT_FOLDER_ID`
-- `DRIVE_ROOT_FOLDER_ID`
-
-## 4) Dominio y healthcheck
-
-- Publica `recibox-api` con dominio/subdominio (ejemplo: `api.tudominio.com`).
-- Publica `recibox-frontend` con su dominio/subdominio (ejemplo: `app.tudominio.com`).
-- Prueba backend: `GET /health`
-- La UI frontend usa `/api/*` y Nginx lo proxy hacia `recibox-api:8000`.
-
-## 5) Flujo mínimo de prueba
-
-1. `GET /health`
-2. `GET /auth/google/login?tenant_id=default`
-3. Completar consentimiento de Google (se guarda token en `tmp/google_tokens`).
-4. Elegir/crear carpeta:
-   - `GET /drive/picker/folders?tenant_id=default&parent_id=root`
-   - `POST /drive/picker/folders?tenant_id=default`
-5. Verificar estructura RECIBOX/INPUT:
-   - `GET /drive/picker/recibox-structure/check?tenant_id=default&parent_id=root`
-6. Si falta INPUT pero RECIBOX existe:
-   - `POST /drive/picker/recibox-input?tenant_id=default`
-7. Guardar IDs por tenant:
-   - `PUT /tenants/default/drive-config`
-8. Verificar acceso:
-   - `GET /drive/files?tenant_id=default`
-9. Encolar proceso:
-   - `POST /ingest/drive?tenant_id=default`
-10. Seguir estado:
-   - `GET /jobs/{job_id}`
-
-## Notas
-
-- `recibox_tmp_data` persiste tokens OAuth y descargas temporales entre reinicios.
-- No compartas Redis con otros sistemas en esta etapa; este stack ya trae su Redis.
+1. Abrir `https://recibox.com.ar`.
+2. Verificar que el login OAuth redirige a:
+   - `https://api.recibox.com.ar/auth/google/callback`
+3. Probar desde navegador:
+   - `https://api.recibox.com.ar/health`
+4. Revisar en DevTools que requests del frontend salgan como:
+   - `https://recibox.com.ar/api/...` (proxied por Nginx al subdominio API).
