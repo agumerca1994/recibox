@@ -84,7 +84,8 @@ Agregar esos dominios en Firebase Authentication -> Authorized domains.
 Importante:
 
 - Las variables `VITE_FIREBASE_*` se inyectan en `npm run build` (tiempo de build).
-- Si cambias una credencial en EasyPanel o `.env`, debes reconstruir la imagen frontend.
+- En Docker/Nginx tambien se expone `env-config.js` en runtime con esas mismas variables.
+- Si cambias credenciales en EasyPanel, alcanza con redeploy/restart del servicio frontend para regenerar `env-config.js` (rebuild queda como opcion segura cuando hay dudas de cache).
 
 Nota:
 

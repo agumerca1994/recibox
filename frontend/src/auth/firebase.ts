@@ -2,18 +2,37 @@ import { initializeApp, getApp, getApps, type FirebaseOptions } from 'firebase/a
 import { getAnalytics, isSupported } from 'firebase/analytics'
 import { getAuth, GoogleAuthProvider, signOut } from 'firebase/auth'
 
-export const firebaseAuthEnabled = (import.meta.env.VITE_FIREBASE_AUTH_ENABLED || 'false').toLowerCase() === 'true'
+type RuntimeConfig = Record<string, string | undefined>
+
+function getRuntimeConfig(): RuntimeConfig {
+  const config = (globalThis as { __RECIBOX_CONFIG?: RuntimeConfig }).__RECIBOX_CONFIG
+  return config || {}
+}
+
+function getFirebaseSetting(name: string): string | undefined {
+  const runtimeValue = getRuntimeConfig()[name]
+  if (typeof runtimeValue === 'string' && runtimeValue.trim()) {
+    return runtimeValue.trim()
+  }
+  const buildValue = (import.meta.env as Record<string, string | undefined>)[name]
+  if (typeof buildValue === 'string' && buildValue.trim()) {
+    return buildValue.trim()
+  }
+  return undefined
+}
+
+export const firebaseAuthEnabled = (getFirebaseSetting('VITE_FIREBASE_AUTH_ENABLED') || 'false').toLowerCase() === 'true'
 export const firebaseAnalyticsEnabled =
-  (import.meta.env.VITE_FIREBASE_ANALYTICS_ENABLED || 'false').toLowerCase() === 'true'
+  (getFirebaseSetting('VITE_FIREBASE_ANALYTICS_ENABLED') || 'false').toLowerCase() === 'true'
 
 const firebaseConfig: FirebaseOptions = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: getFirebaseSetting('VITE_FIREBASE_API_KEY'),
+  authDomain: getFirebaseSetting('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: getFirebaseSetting('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getFirebaseSetting('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getFirebaseSetting('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getFirebaseSetting('VITE_FIREBASE_APP_ID'),
+  measurementId: getFirebaseSetting('VITE_FIREBASE_MEASUREMENT_ID'),
 }
 
 function assertFirebaseConfig(): void {
