@@ -2,8 +2,8 @@ type RuntimeConfig = Record<string, string | undefined>
 
 type AppEnvironment = 'localhost' | 'test' | 'prod'
 type EnvironmentChip = {
-  label: 'Localhost' | 'Test'
-  tone: 'localhost' | 'test'
+  label: 'Localhost' | 'Test' | 'Beta'
+  tone: 'localhost' | 'test' | 'beta'
 }
 
 function getRuntimeConfig(): RuntimeConfig {
@@ -67,5 +67,5 @@ export function getEnvironmentChip(): EnvironmentChip | null {
   if (env === 'test') {
     return { label: 'Test', tone: 'test' }
   }
-  return null
+  return { label: 'Beta', tone: 'beta' }
 }
