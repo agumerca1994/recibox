@@ -114,7 +114,7 @@ Recomendado en multi-tenant:
 ## Dev vs Prod
 
 - Dev: usar `backend/.env`.
-- Prod: usar variables/mounts en `docker-compose.yml` (o UI de EasyPanel).
+- Prod: usar variables/mounts en `docker-compose.backend.prod.yml` (o UI de EasyPanel).
 
 En ambos casos, la app dentro del contenedor debe leer rutas internas como:
 - `/run/secrets/service-account.json`

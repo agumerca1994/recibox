@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from pathlib import Path
 import json
@@ -18,6 +18,7 @@ from app.services.storage.gdrive_ops import (
     list_year_folders,
 )
 from app.services.auth import google_oauth
+from app.services.auth import firebase_auth
 from app.services.tenants.drive_config import (
     clear_tenant_drive_config,
     is_tenant_disabled,
@@ -26,6 +27,7 @@ from app.services.tenants.drive_config import (
     save_tenant_drive_config,
     set_tenant_disabled,
 )
+from app.services.tenants.user_tenants import resolve_or_create_user_tenant
 from app.services.tenants.processing_preferences import (
     clear_tenant_processing_preferences,
     load_tenant_processing_preferences,
@@ -103,9 +105,43 @@ def _resolve_drive_config_or_400(tenant_id: str):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+def _extract_bearer_token(authorization: str | None) -> str:
+    raw = (authorization or "").strip()
+    if not raw:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    parts = raw.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
+    return parts[1].strip()
+
+
+def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str | None, str]:
+    token = _extract_bearer_token(authorization)
+    try:
+        claims = firebase_auth.verify_bearer_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token")
+
+    uid = str(claims.get("uid", "")).strip()
+    email = str(claims.get("email", "")).strip() or None
+    if not uid:
+        raise HTTPException(status_code=401, detail="Token without uid")
+    try:
+        user_tenant = resolve_or_create_user_tenant(uid=uid, email=email)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Tenant mapping failed: {exc}")
+    return user_tenant.uid, user_tenant.email, user_tenant.tenant_id
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@router.get("/auth/session")
+async def auth_session(authorization: str | None = Header(default=None)):
+    uid, email, tenant_id = _resolve_user_tenant_from_token(authorization)
+    return {"uid": uid, "email": email, "tenant_id": tenant_id}
 
 @router.get("/drive/files")
 async def list_drive_files(
