@@ -3,3 +3,35 @@ body,
 #root {
   min-height: 100%;
 }
+
+.env-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: nowrap;
+  transform: translateY(1px);
+}
+
+.env-chip-localhost {
+  color: #0f766e;
+  background: #e6fffa;
+}
+
+.env-chip-test {
+  color: #a16207;
+  background: #fef9c3;
+}
+
+.env-chip-beta {
+  color: #1e3a8a;
+  background: #dbeafe;
+}

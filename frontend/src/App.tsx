@@ -19,6 +19,7 @@ import {
 } from './api/recibox'
 import { signOutFirebaseUser } from './auth/firebase'
 import { authEmailStorageKey, tenantStorageKey } from './auth/session'
+import { getEnvironmentChip } from './config/environment'
 import type {
   DriveFile,
   DriveFolder,
@@ -323,6 +324,7 @@ function getProcessSortTimestamp(item: ProcessItem): number {
 }
 
 function App() {
+  const environmentChip = getEnvironmentChip()
   const [tenantId, setTenantId] = useState<string>(() => {
     if (typeof window === 'undefined') {
       return defaultTenant
@@ -1208,6 +1210,7 @@ function App() {
         <div className="brand-wrap">
           <img className="brand-icon" src="/assets/branding/recibox-logo.png" alt="RECIBOX" />
           <span className="brand-text">RECIBOX</span>
+          {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label}</span>}
         </div>
         <div className="topbar-right">
           <div className="profile-popover-wrap" ref={profilePopoverRef}>

@@ -10,6 +10,7 @@ import {
 import './AuthGate.css'
 import { firebaseAuth, firebaseAuthEnabled, googleAuthProvider } from './firebase'
 import { authEmailStorageKey, authUidStorageKey, tenantStorageKey } from './session'
+import { getEnvironmentChip } from '../config/environment'
 
 type Props = {
   children: ReactNode
@@ -18,6 +19,7 @@ type Props = {
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
 
 export default function AuthGate({ children }: Props) {
+  const environmentChip = getEnvironmentChip()
   const [loading, setLoading] = useState(firebaseAuthEnabled)
   const [user, setUser] = useState<User | null>(null)
   const [error, setError] = useState('')
@@ -125,7 +127,10 @@ export default function AuthGate({ children }: Props) {
     return (
       <main className="auth-gate">
         <section className="auth-gate-card" aria-label="Autenticacion Firebase">
-          <h1>RECIBOX</h1>
+          <div className="auth-gate-brand">
+            <h1>RECIBOX</h1>
+            {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label}</span>}
+          </div>
           <p>Validando sesion...</p>
         </section>
       </main>
@@ -139,7 +144,10 @@ export default function AuthGate({ children }: Props) {
   return (
     <main className="auth-gate">
       <section className="auth-gate-card" aria-label="Autenticacion Firebase">
-        <h1>RECIBOX</h1>
+        <div className="auth-gate-brand">
+          <h1>RECIBOX</h1>
+          {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label}</span>}
+        </div>
         <p>Ingresa con Google o con correo y contraseña para acceder al backoffice.</p>
         <form className="auth-gate-form" onSubmit={(event) => void submitEmailPassword(event)}>
           <label className="auth-gate-label" htmlFor="auth-email">
