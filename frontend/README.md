@@ -15,6 +15,7 @@ Crear `frontend/.env` desde `frontend/.env.example`:
 VITE_DEV_PORT=5173
 VITE_API_BASE_PATH=/api
 VITE_API_TARGET=http://127.0.0.1:8000
+VITE_APP_ENV=localhost
 VITE_TENANT_ID=acme
 VITE_FIREBASE_AUTH_ENABLED=false
 VITE_FIREBASE_API_KEY=
@@ -80,6 +81,12 @@ Configurar las mismas variables en EasyPanel para cada stack frontend:
 - `backoffice-test.recibox.com.ar`
 
 Agregar esos dominios en Firebase Authentication -> Authorized domains.
+
+Definir tambien `VITE_APP_ENV` por entorno para mostrar el chip visual:
+
+- `localhost` para local
+- `test` para testing
+- `prod` para produccion
 
 Importante:
 
