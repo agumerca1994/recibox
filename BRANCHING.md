@@ -83,7 +83,7 @@ Dominios test:
 - `api-test.recibox.com.ar` -> `recibox-test-api` (puerto 8000 interno, HTTP)
 - `backoffice-test.recibox.com.ar` -> `recibox-test-frontend` (puerto 80 interno, HTTP)
 
-Secrets test (`/opt/recibox-secrets-test` o `TEST_SECRETS_DIR`):
+Secrets test (`/opt/recibox-credentials/test` o `TEST_SECRETS_DIR`):
 
 - `service-account.json` (Google Drive / GCP)
 - `firebase-admin.json` (Firebase Admin del proyecto test)
