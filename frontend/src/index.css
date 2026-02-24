@@ -30,3 +30,8 @@ body,
   color: #a16207;
   background: #fef9c3;
 }
+
+.env-chip-beta {
+  color: #1e3a8a;
+  background: #dbeafe;
+}
