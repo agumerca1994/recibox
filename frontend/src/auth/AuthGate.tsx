@@ -2,13 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signOut,
   signInWithEmailAndPassword,
-  signInWithPopup,
   type User,
 } from 'firebase/auth'
 import './AuthGate.css'
-import { firebaseAuth, firebaseAuthEnabled, googleAuthProvider } from './firebase'
+import { firebaseAuth, firebaseAuthEnabled } from './firebase'
 import { authEmailStorageKey, authUidStorageKey, tenantStorageKey } from './session'
 import { getEnvironmentChip } from '../config/environment'
 
@@ -27,6 +27,7 @@ export default function AuthGate({ children }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [info, setInfo] = useState('')
 
   useEffect(() => {
     if (!firebaseAuthEnabled) {
@@ -80,18 +81,6 @@ export default function AuthGate({ children }: Props) {
     return () => unsubscribe()
   }, [])
 
-  async function loginWithGoogle() {
-    setBusy(true)
-    setError('')
-    try {
-      await signInWithPopup(firebaseAuth, googleAuthProvider)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesion con Firebase.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function submitEmailPassword(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const normalizedEmail = email.trim()
@@ -106,6 +95,7 @@ export default function AuthGate({ children }: Props) {
 
     setBusy(true)
     setError('')
+    setInfo('')
     try {
       if (mode === 'register') {
         await createUserWithEmailAndPassword(firebaseAuth, normalizedEmail, password)
@@ -114,6 +104,26 @@ export default function AuthGate({ children }: Props) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo autenticar el usuario.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function recoverPassword() {
+    const normalizedEmail = email.trim()
+    if (!normalizedEmail) {
+      setInfo('')
+      setError('Ingresa tu correo para recuperar la contraseña.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setInfo('')
+    try {
+      await sendPasswordResetEmail(firebaseAuth, normalizedEmail)
+      setInfo('Te enviamos un correo para recuperar la contraseña.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enviar el correo de recuperacion.')
     } finally {
       setBusy(false)
     }
@@ -148,7 +158,7 @@ export default function AuthGate({ children }: Props) {
           <h1>RECIBOX</h1>
           {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label}</span>}
         </div>
-        <p>Ingresa con Google o con correo y contraseña para acceder al backoffice.</p>
+        <p>Inicia sesion o registrate para usar el backoffice.</p>
         <form className="auth-gate-form" onSubmit={(event) => void submitEmailPassword(event)}>
           <label className="auth-gate-label" htmlFor="auth-email">
             Correo
@@ -174,27 +184,33 @@ export default function AuthGate({ children }: Props) {
             autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
             disabled={busy}
           />
-          <button type="submit" className="auth-gate-btn" disabled={busy}>
-            {busy ? 'Procesando...' : mode === 'register' ? 'Crear cuenta' : 'Entrar con correo'}
+          <button
+            type="submit"
+            className={`auth-gate-btn ${mode === 'register' ? 'auth-gate-btn-register' : ''}`}
+            disabled={busy}
+          >
+            {busy ? 'Procesando...' : mode === 'register' ? 'Crear cuenta' : 'Iniciar sesion'}
           </button>
         </form>
-        <div className="auth-gate-actions">
-          <button type="button" className="auth-gate-btn" onClick={() => void loginWithGoogle()} disabled={busy}>
-            {busy ? 'Conectando...' : 'Entrar con Google'}
-          </button>
+        <div className="auth-gate-links">
           <button
             type="button"
-            className="auth-gate-btn auth-gate-btn-secondary"
+            className="auth-gate-link auth-gate-link-create"
             disabled={busy}
             onClick={() => {
               setError('')
+              setInfo('')
               setMode((prev) => (prev === 'login' ? 'register' : 'login'))
             }}
           >
             {mode === 'register' ? 'Ya tengo cuenta' : 'Crear cuenta'}
           </button>
+          <button type="button" className="auth-gate-link" disabled={busy} onClick={() => void recoverPassword()}>
+            Olvide mi contraseña
+          </button>
         </div>
         {error && <p className="auth-gate-error">{error}</p>}
+        {info && <p className="auth-gate-info">{info}</p>}
       </section>
     </main>
   )
