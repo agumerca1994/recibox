@@ -15,9 +15,17 @@
 }
 
 .auth-gate-card h1 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 28px;
+  line-height: 1;
   color: #111827;
+}
+
+.auth-gate-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .auth-gate-card p {

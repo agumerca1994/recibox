@@ -15,6 +15,7 @@ Crear `frontend/.env` desde `frontend/.env.example`:
 VITE_DEV_PORT=5173
 VITE_API_BASE_PATH=/api
 VITE_API_TARGET=http://127.0.0.1:8000
+VITE_APP_ENV=localhost
 VITE_TENANT_ID=acme
 VITE_FIREBASE_AUTH_ENABLED=false
 VITE_FIREBASE_API_KEY=
@@ -81,11 +82,16 @@ Configurar las mismas variables en EasyPanel para cada stack frontend:
 
 Agregar esos dominios en Firebase Authentication -> Authorized domains.
 
+Definir tambien `VITE_APP_ENV` por entorno para mostrar el chip visual:
+
+- `localhost` para local
+- `test` para testing
+- `prod` para produccion
+
 Importante:
 
 - Las variables `VITE_FIREBASE_*` se inyectan en `npm run build` (tiempo de build).
-- En Docker/Nginx tambien se expone `env-config.js` en runtime con esas mismas variables.
-- Si cambias credenciales en EasyPanel, alcanza con redeploy/restart del servicio frontend para regenerar `env-config.js` (rebuild queda como opcion segura cuando hay dudas de cache).
+- Si cambias una credencial en EasyPanel o `.env`, debes reconstruir la imagen frontend.
 
 Nota:
 
