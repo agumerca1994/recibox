@@ -4,21 +4,21 @@ Este setup asume que el backend ya esta desplegado por separado en:
 
 - `https://api.recibox.com.ar`
 
-El `docker-compose.yml` de la raiz despliega solamente:
+El compose de frontend prod en la raiz es:
 
-- `recibox-frontend` (React + Nginx)
+- `docker-compose.frontend.prod.yml`
 
 ## 1) Archivo en la raiz
 
 EasyPanel debe leer el compose desde la raiz del repo:
 
-- `docker-compose.yml`
+- `docker-compose.frontend.prod.yml`
 
 ## 2) Crear stack en EasyPanel
 
 1. En EasyPanel, entra al proyecto.
 2. Crea un servicio tipo Compose/Stack.
-3. Usa el `docker-compose.yml` de la raiz.
+3. Usa `docker-compose.frontend.prod.yml` desde la raiz.
 4. Publica el servicio `recibox-frontend` con el dominio:
    - `recibox.com.ar`
 
@@ -49,15 +49,15 @@ Configurado en:
 
 Composes recomendados:
 
-- `docker-compose.test.backend.yml`
-- `docker-compose.test.frontend.yml`
+- `docker-compose.backend.test.yml`
+- `docker-compose.frontend.test.yml`
 
 ## Fuente en EasyPanel (backend test)
 
 - URL repo: mismo repositorio
 - Rama: `test`
 - Ruta de compilacion: `/`
-- Archivo Docker Compose: `docker-compose.test.backend.yml`
+- Archivo Docker Compose: `docker-compose.backend.test.yml`
 
 ## Servicios esperados (backend test)
 
@@ -71,7 +71,7 @@ Composes recomendados:
 - URL repo: mismo repositorio
 - Rama: `test`
 - Ruta de compilacion: `/`
-- Archivo Docker Compose: `docker-compose.test.frontend.yml`
+- Archivo Docker Compose: `docker-compose.frontend.test.yml`
 
 Servicio esperado:
 

@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: recibox
-      POSTGRES_USER: recibox
-      POSTGRES_PASSWORD: recibox
+      POSTGRES_DB: ${POSTGRES_DB:-recibox}
+      POSTGRES_USER: ${POSTGRES_USER:-recibox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recibox}
     volumes:
       - recibox_prod_postgres_data:/var/lib/postgresql/data
     networks:
@@ -29,33 +29,33 @@ services:
       - recibox-prod-redis
     environment:
       APP_NAME: recibox-backend
-      ENV: prod
-      LOG_LEVEL: INFO
+      ENV: ${APP_ENV:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_URL: redis://recibox-prod-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-recibox}:${POSTGRES_PASSWORD:-recibox}@recibox-prod-postgres:5432/${POSTGRES_DB:-recibox}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
       FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
-      GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-https://api.recibox.com.ar/auth/google/callback}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: "true"
-      DRIVE_SUPPORTS_ALL_DRIVES: "true"
-      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
-      DRIVE_PAGE_SIZE: "1000"
-      POLL_INTERVAL_SECONDS: "60"
-      OCR_ENABLED: "false"
-      OCR_MIN_TEXT_LEN: "200"
-      OCR_LANG: spa+eng
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-true}
+      DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
+      DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      OCR_MIN_TEXT_LEN: ${OCR_MIN_TEXT_LEN:-200}
+      OCR_LANG: ${OCR_LANG:-spa+eng}
       LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
       RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
-      RQ_JOB_TIMEOUT_SECONDS: "900"
+      RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
     expose:
       - "8000"
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${PROD_SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
+      - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
     networks:
       - prod-internal
       - easypanel
@@ -72,31 +72,31 @@ services:
     command: ["rq", "worker", "recibox", "--url", "redis://recibox-prod-redis:6379/0"]
     environment:
       APP_NAME: recibox-backend
-      ENV: prod
-      LOG_LEVEL: INFO
+      ENV: ${APP_ENV:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_URL: redis://recibox-prod-redis:6379/0
-      POSTGRES_URL: postgresql://recibox:recibox@recibox-prod-postgres:5432/recibox
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-recibox}:${POSTGRES_PASSWORD:-recibox}@recibox-prod-postgres:5432/${POSTGRES_DB:-recibox}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
       FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
       GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
-      GOOGLE_OAUTH_REDIRECT_URI: https://api.recibox.com.ar/auth/google/callback
-      GOOGLE_OAUTH_SCOPES: https://www.googleapis.com/auth/drive
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-https://api.recibox.com.ar/auth/google/callback}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: "true"
-      DRIVE_SUPPORTS_ALL_DRIVES: "true"
-      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: "true"
-      DRIVE_PAGE_SIZE: "1000"
-      POLL_INTERVAL_SECONDS: "60"
-      OCR_ENABLED: "false"
-      OCR_MIN_TEXT_LEN: "200"
-      OCR_LANG: spa+eng
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-true}
+      DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
+      DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      OCR_MIN_TEXT_LEN: ${OCR_MIN_TEXT_LEN:-200}
+      OCR_LANG: ${OCR_LANG:-spa+eng}
       LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
       RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
-      RQ_JOB_TIMEOUT_SECONDS: "900"
+      RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${PROD_SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
+      - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
     networks:
       - prod-internal
       - easypanel

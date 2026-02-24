@@ -42,32 +42,34 @@ git push origin prod
 
 ## Convencion de nombres de compose
 
-Para evitar confusion entre ambientes y capas:
+Para evitar confusion entre ambientes y capas, se usa un unico formato canonico:
 
-- `docker-compose.prod.backend.yml`
-- `docker-compose.prod.frontend.yml`
-- `docker-compose.test.backend.yml`
-- `docker-compose.test.frontend.yml`
+- `docker-compose.backend.localhost.yml`
+- `docker-compose.frontend.localhost.yml`
+- `docker-compose.backend.test.yml`
+- `docker-compose.frontend.test.yml`
+- `docker-compose.backend.prod.yml`
+- `docker-compose.frontend.prod.yml`
 
 ## EasyPanel (frontend)
 
 ### Produccion
 - Rama: `prod`
-- Compose file: `docker-compose.prod.frontend.yml`
+- Compose file: `docker-compose.frontend.prod.yml`
 - Dominio: `backoffice.recibox.com.ar`
 - API upstream: `https://api.recibox.com.ar` (ya configurado en compose)
 
 ### Test
 - Rama: `test`
-- Compose file: `docker-compose.test.frontend.yml`
+- Compose file: `docker-compose.frontend.test.yml`
 - Dominio: `backoffice-test.recibox.com.ar`
 - API upstream: `https://api-test.recibox.com.ar` (ya configurado en compose)
 
 ## EasyPanel (backend)
 - Crear stack backend prod con rama `prod` y dominio `api.recibox.com.ar`.
 - Crear stack backend test con rama `test` y dominio `api-test.recibox.com.ar`.
-- Compose recomendado prod: `docker-compose.prod.backend.yml`
-- Compose recomendado test: `docker-compose.test.backend.yml`
+- Compose recomendado prod: `docker-compose.backend.prod.yml`
+- Compose recomendado test: `docker-compose.backend.test.yml`
 - En cada stack backend configurar:
   - `GOOGLE_OAUTH_REDIRECT_URI=https://<dominio-api>/auth/google/callback`
   - secretos/volumenes separados para no mezclar tokens entre prod y test.
@@ -75,8 +77,8 @@ Para evitar confusion entre ambientes y capas:
 ## Compose integral de test
 Desplegar test en dos stacks separados:
 
-- Backend test: `docker-compose.test.backend.yml`
-- Frontend test: `docker-compose.test.frontend.yml`
+- Backend test: `docker-compose.backend.test.yml`
+- Frontend test: `docker-compose.frontend.test.yml`
 
 Dominios test:
 
@@ -99,5 +101,5 @@ Secrets test (`/opt/recibox-credentials/test` o `TEST_SECRETS_DIR`):
   - `API_UPSTREAM`
   - `API_UPSTREAM_HOST`
 - Estan definidas en:
-  - `docker-compose.prod.frontend.yml` (prod)
-  - `docker-compose.test.frontend.yml` (test)
+  - `docker-compose.frontend.prod.yml` (prod)
+  - `docker-compose.frontend.test.yml` (test)

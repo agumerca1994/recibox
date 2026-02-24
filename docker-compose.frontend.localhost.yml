@@ -1,5 +1,5 @@
 services:
-  recibox-prod-frontend:
+  recibox-frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -15,13 +15,7 @@ services:
         VITE_FIREBASE_MEASUREMENT_ID: ${VITE_FIREBASE_MEASUREMENT_ID:-}
     restart: unless-stopped
     environment:
-      API_UPSTREAM: https://api.recibox.com.ar
-      API_UPSTREAM_HOST: api.recibox.com.ar
-    expose:
-      - "80"
-    networks:
-      - easypanel
-
-networks:
-  easypanel:
-    external: true
+      API_UPSTREAM: ${API_UPSTREAM:-http://recibox-api:8000}
+      API_UPSTREAM_HOST: ${API_UPSTREAM_HOST:-recibox-api}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"

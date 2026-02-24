@@ -15,8 +15,8 @@ services:
         VITE_FIREBASE_MEASUREMENT_ID: ${VITE_FIREBASE_MEASUREMENT_ID:-}
     restart: unless-stopped
     environment:
-      API_UPSTREAM: https://api-test.recibox.com.ar
-      API_UPSTREAM_HOST: api-test.recibox.com.ar
+      API_UPSTREAM: ${API_UPSTREAM:-https://api-test.recibox.com.ar}
+      API_UPSTREAM_HOST: ${API_UPSTREAM_HOST:-api-test.recibox.com.ar}
     expose:
       - "80"
     networks:

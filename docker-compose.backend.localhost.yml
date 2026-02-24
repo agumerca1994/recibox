@@ -1,0 +1,103 @@
+services:
+  recibox-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-recibox_local}
+      POSTGRES_USER: ${POSTGRES_USER:-recibox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recibox}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - recibox_local_postgres_data:/var/lib/postgresql/data
+
+  recibox-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - recibox_local_redis_data:/data
+
+  recibox-api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - recibox-postgres
+      - recibox-redis
+    environment:
+      APP_NAME: recibox-backend
+      ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: redis://recibox-redis:6379/0
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-recibox}:${POSTGRES_PASSWORD:-recibox}@recibox-postgres:5432/${POSTGRES_DB:-recibox_local}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/oauth-secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
+      GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-false}
+      DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
+      DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      OCR_MIN_TEXT_LEN: ${OCR_MIN_TEXT_LEN:-200}
+      OCR_LANG: ${OCR_LANG:-spa+eng}
+      LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
+      RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
+      RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - recibox_local_tmp_data:/app/backend/tmp
+      - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+
+  recibox-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - recibox-postgres
+      - recibox-redis
+      - recibox-api
+    command: ["rq", "worker", "recibox", "--url", "redis://recibox-redis:6379/0"]
+    environment:
+      APP_NAME: recibox-backend
+      ENV: ${APP_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: redis://recibox-redis:6379/0
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-recibox}:${POSTGRES_PASSWORD:-recibox}@recibox-postgres:5432/${POSTGRES_DB:-recibox_local}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
+      FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/oauth-secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
+      GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-false}
+      DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
+      DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
+      DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      OCR_MIN_TEXT_LEN: ${OCR_MIN_TEXT_LEN:-200}
+      OCR_LANG: ${OCR_LANG:-spa+eng}
+      LOCAL_DOWNLOAD_DIR: /app/backend/tmp/downloads
+      RESULTS_LOG_PATH: /app/backend/tmp/results.jsonl
+      RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
+    volumes:
+      - recibox_local_tmp_data:/app/backend/tmp
+      - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+
+volumes:
+  recibox_local_postgres_data:
+  recibox_local_redis_data:
+  recibox_local_tmp_data:

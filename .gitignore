@@ -25,6 +25,8 @@ backend/.env.*
 *client_secret*.json
 *service-account*.json
 test/credential/*.json
+test/credential/
+test/credentials/
 **/credential/*.json
 **/credentials/*.json
 deploy/easypanel/secrets/

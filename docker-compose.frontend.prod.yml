@@ -1,5 +1,5 @@
 services:
-  recibox-frontend:
+  recibox-prod-frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -15,8 +15,8 @@ services:
         VITE_FIREBASE_MEASUREMENT_ID: ${VITE_FIREBASE_MEASUREMENT_ID:-}
     restart: unless-stopped
     environment:
-      API_UPSTREAM: https://api.recibox.com.ar
-      API_UPSTREAM_HOST: api.recibox.com.ar
+      API_UPSTREAM: ${API_UPSTREAM:-https://api.recibox.com.ar}
+      API_UPSTREAM_HOST: ${API_UPSTREAM_HOST:-api.recibox.com.ar}
     expose:
       - "80"
     networks:
