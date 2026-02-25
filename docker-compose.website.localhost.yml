@@ -1,0 +1,8 @@
+services:
+  recibox-website:
+    build:
+      context: .
+      dockerfile: website/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEBSITE_PORT:-8090}:80"
