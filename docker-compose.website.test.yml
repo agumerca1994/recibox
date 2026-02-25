@@ -1,0 +1,14 @@
+services:
+  recibox-website:
+    build:
+      context: .
+      dockerfile: website/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - easypanel
+
+networks:
+  easypanel:
+    external: true

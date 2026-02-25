@@ -323,7 +323,7 @@ function getProcessSortTimestamp(item: ProcessItem): number {
   return item.createdAt
 }
 
-function App() {
+function BackofficeApp() {
   const environmentChip = getEnvironmentChip()
   const [tenantId, setTenantId] = useState<string>(() => {
     if (typeof window === 'undefined') {
@@ -2153,6 +2153,10 @@ function App() {
       )}
     </div>
   )
+}
+
+function App() {
+  return <BackofficeApp />
 }
 
 export default App
