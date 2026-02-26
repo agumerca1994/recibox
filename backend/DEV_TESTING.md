@@ -21,13 +21,13 @@ deactivate
 ### Terminal 1 (API)
 
 ```bash
-cd /mnt/c/Users/u634958/Documents/proyectos/recibox/backend
-source .venv/bin/activate
+  cd /mnt/c/Users/u634958/Documents/proyectos/recibox/backend
+  source .venv/bin/activate
 
-sudo service redis-server start
-redis-cli ping
+  sudo service redis-server start
+  redis-cli ping
 
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+  uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Terminal 2 (Worker)

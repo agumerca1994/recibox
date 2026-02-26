@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Términos y Política de Privacidad - Recibox</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#9ACD32", // Lime green from the logo
+              "primary-dark": "#7ca328",
+              "background-light": "#F9FAFB",
+              "background-dark": "#111827",
+              "surface-light": "#FFFFFF",
+              "surface-dark": "#1F2937",
+              "text-light": "#1F2937",
+              "text-dark": "#F3F4F6",
+              "text-muted-light": "#6B7280",
+              "text-muted-dark": "#9CA3AF",
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              lg: "0.75rem",
+              xl: "1rem",
+            },
+            typography: (theme) => ({
+              DEFAULT: {
+                css: {
+                  color: theme('colors.gray.700'),
+                  a: {
+                    color: theme('colors.primary'),
+                    '&:hover': {
+                      color: theme('colors.primary-dark'),
+                    },
+                  },
+                  h1: { color: theme('colors.gray.900') },
+                  h2: { color: theme('colors.gray.900') },
+                  h3: { color: theme('colors.gray.900') },
+                  strong: { color: theme('colors.gray.900') },
+                },
+              },
+              dark: {
+                css: {
+                  color: theme('colors.gray.300'),
+                  a: {
+                    color: theme('colors.primary'),
+                    '&:hover': {
+                      color: theme('colors.primary'),
+                    },
+                  },
+                  h1: { color: theme('colors.white') },
+                  h2: { color: theme('colors.white') },
+                  h3: { color: theme('colors.white') },
+                  strong: { color: theme('colors.white') },
+                },
+              },
+            }),
+          },
+        },
+      };
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-sans antialiased text-text-light dark:text-text-dark min-h-screen flex flex-col transition-colors duration-200">
+<header class="sticky top-0 z-50 bg-surface-light/80 dark:bg-surface-dark/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex justify-between h-16 items-center">
+<div class="flex-shrink-0 flex items-center gap-2">
+<img alt="Recibox Logo" class="h-8 w-auto" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDCQZEayVE1muUlk9WxEaAG1VCLziGi-kZUfX-el74oL2XF4v5whXaIvvEtbRcLL-epewGWaRJvoEs70cTd3LOXrV-Z5RjxOh7iDtmbn8Abw3F1x_5wjWvm53rIB-Nm4CdUOo14e3tyllt3sWiomHHdBiGPe_V3fZfhlf33smwjB-ViM7zjIgq6cfPDoQR9KihlA6JL5AQu1Rzp4-rT-juIYys87M5XtGsy1MyjrgqmlZNgFMFU6KwZz2bYAZ71pMzvJeenLergoYk"/>
+</div>
+<nav class="hidden md:flex space-x-8">
+<a class="text-text-muted-light dark:text-text-muted-dark hover:text-primary dark:hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Características</a>
+<a class="text-text-muted-light dark:text-text-muted-dark hover:text-primary dark:hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Planes</a>
+<a class="text-text-muted-light dark:text-text-muted-dark hover:text-primary dark:hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Nosotros</a>
+</nav>
+<div class="flex items-center space-x-4">
+<button class="p-2 rounded-full text-text-muted-light dark:text-text-muted-dark hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" id="theme-toggle">
+<span class="material-symbols-outlined text-[20px]">light_mode</span>
+</button>
+<a class="hidden md:inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:bg-primary-dark shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary" href="#">
+                        Iniciar Sesión
+                    </a>
+</div>
+</div>
+</div>
+</header>
+<main class="flex-grow">
+<div class="bg-surface-light dark:bg-surface-dark border-b border-gray-200 dark:border-gray-800">
+<div class="max-w-4xl mx-auto px-4 py-16 sm:px-6 lg:px-8 text-center">
+<p class="text-primary font-semibold tracking-wide uppercase text-sm mb-2">Información Legal</p>
+<h1 class="text-3xl font-extrabold text-gray-900 dark:text-white sm:text-4xl">
+                    Términos de Servicio y Privacidad
+                </h1>
+<p class="mt-4 text-xl text-text-muted-light dark:text-text-muted-dark">
+                    Última actualización: 26 de Octubre, 2023
+                </p>
+</div>
+</div>
+<div class="max-w-4xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 p-8 md:p-12">
+<div class="prose prose-lg prose-slate dark:prose-invert max-w-none">
+<p class="lead">
+                        Bienvenido a Recibox. Estamos comprometidos a proteger tu privacidad y asegurar que tengas una experiencia positiva en nuestro sitio web y al usar nuestros productos de gestión de documentos administrativos.
+                    </p>
+<h2 class="text-primary font-bold mt-12 mb-6 flex items-center">
+<span class="material-symbols-outlined mr-2 text-3xl">gavel</span>
+                        1. Términos de Uso
+                    </h2>
+<p>
+                        Al acceder o usar Recibox, aceptas estar sujeto a estos Términos. Si no estás de acuerdo con alguna parte de los términos, entonces no podrás acceder al Servicio.
+                    </p>
+<p>
+                        Recibox proporciona una interfaz web para gestionar documentos administrativos de manera eficiente. Te otorgamos una licencia limitada, no exclusiva e intransferible para usar nuestro Servicio para tus operaciones comerciales internas.
+                    </p>
+<h2 class="text-primary font-bold mt-12 mb-6 flex items-center">
+<span class="material-symbols-outlined mr-2 text-3xl">security</span>
+                        2. ¿Cómo protegemos tus datos?
+                    </h2>
+<p>
+                        La seguridad es nuestra máxima prioridad. Implementamos medidas de seguridad estándar de la industria para proteger tus datos contra el acceso no autorizado, la divulgación, alteración y destrucción.
+                    </p>
+<ul class="list-disc pl-5 space-y-2 marker:text-primary">
+<li><strong>Cifrado:</strong> Todos los datos transmitidos entre tu navegador y nuestros servidores están cifrados usando TLS 1.2 o superior.</li>
+<li><strong>Controles de Acceso:</strong> Aplicamos estrictos controles de acceso. Solo el personal autorizado tiene acceso a la infraestructura que aloja tus datos.</li>
+<li><strong>Auditorías Regulares:</strong> Realizamos auditorías de seguridad y evaluaciones de vulnerabilidad periódicas para asegurar que nuestros sistemas permanezcan seguros.</li>
+</ul>
+<h2 class="text-primary font-bold mt-12 mb-6 flex items-center">
+<span class="material-symbols-outlined mr-2 text-3xl">cloud_sync</span>
+                        3. Tu control sobre Google Drive
+                    </h2>
+<p>
+                        Recibox se integra perfectamente con Google Drive para almacenar y organizar tus documentos. Al habilitar esta integración, autorizas a Recibox a acceder a tu cuenta de Google Drive con el único propósito de:
+                    </p>
+<ol class="list-decimal pl-5 space-y-2 marker:text-primary marker:font-bold">
+<li>Crear carpetas dedicadas para tus documentos administrativos.</li>
+<li>Subir archivos que envíes a través de la interfaz de Recibox directamente a tu Drive.</li>
+<li>Leer metadatos de archivos para mostrar la organización de tus documentos dentro de nuestra aplicación.</li>
+</ol>
+<div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-primary p-4 my-6 rounded-r-md">
+<p class="text-sm m-0 italic">
+<strong>Nota:</strong> No leemos el contenido de tus archivos personales fuera de las carpetas específicas creadas por Recibox, ni compartimos tus datos de usuario de Google con terceros con fines publicitarios.
+                        </p>
+</div>
+<h2 class="text-primary font-bold mt-12 mb-6 flex items-center">
+<span class="material-symbols-outlined mr-2 text-3xl">person_check</span>
+                        4. Tus Derechos como Usuario
+                    </h2>
+<p>
+                        Conservas la propiedad total de todos los datos y documentos que subes a Recibox. Bajo las leyes de protección de datos aplicables (como RGPD o CCPA), tienes derecho a:
+                    </p>
+<div class="grid md:grid-cols-2 gap-4 mt-4 not-prose">
+<div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+<h4 class="font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">visibility</span> Acceso
+                            </h4>
+<p class="text-sm text-text-muted-light dark:text-text-muted-dark">Solicitar una copia de los datos personales que tenemos sobre ti.</p>
+</div>
+<div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+<h4 class="font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">edit</span> Rectificación
+                            </h4>
+<p class="text-sm text-text-muted-light dark:text-text-muted-dark">Actualizar o corregir cualquier inexactitud en tus datos personales.</p>
+</div>
+<div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+<h4 class="font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">delete</span> Supresión
+                            </h4>
+<p class="text-sm text-text-muted-light dark:text-text-muted-dark">Solicitar la eliminación de tu cuenta y los datos asociados.</p>
+</div>
+<div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+<h4 class="font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">output</span> Portabilidad
+                            </h4>
+<p class="text-sm text-text-muted-light dark:text-text-muted-dark">Recibir tus datos en un formato estructurado y de uso común.</p>
+</div>
+</div>
+<h2 class="text-primary font-bold mt-12 mb-6 flex items-center">
+<span class="material-symbols-outlined mr-2 text-3xl">mail</span>
+                        5. Contáctanos
+                    </h2>
+<p>
+                        Si tienes alguna pregunta sobre estos Términos o nuestra Política de Privacidad, por favor contáctanos en:
+                    </p>
+<p>
+<a class="font-semibold underline decoration-primary decoration-2 underline-offset-2" href="mailto:soporte@recibox.com">soporte@recibox.com</a>
+</p>
+</div>
+</div>
+</div>
+</main>
+<footer class="bg-surface-light dark:bg-surface-dark border-t border-gray-200 dark:border-gray-800 mt-auto">
+<div class="max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
+<div class="xl:grid xl:grid-cols-3 xl:gap-8">
+<div class="space-y-8 xl:col-span-1">
+<img alt="Recibox Logo Grayscale" class="h-8 w-auto grayscale opacity-80" src="https://lh3.googleusercontent.com/aida-public/AB6AXuARugdQpaBKxmBSTf0Lpk6-6bGiFuBrcOTG3v9r8UrMFcViXF6VE-xy4Isop6sA4zwzov97LflPtddy0hp1e9GufEnXmDKNsRGbuNvNt8Dz1oaFmuMcHp0Ra19aclv0Q8TQTzU0RM8XQbpNjfp-R9r2KkKWupVftZBAZS9pcb3Fyn65Yx2uar039IWiZcm1wVPoS1jgzXzhZ4pB2KcJNZpWNnaxYEbM9XKlE9AD_KLH_7p-b1jkPpMb8Lv6uaIqI5HZ1kFo_G1CJ4U"/>
+<p class="text-gray-500 dark:text-gray-400 text-base">
+                        Simplificando la gestión documental para empresas modernas. Seguro, rápido e integrado.
+                    </p>
+<div class="flex space-x-6">
+<a class="text-gray-400 hover:text-primary" href="#">
+<span class="sr-only">Twitter</span>
+<svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 001.27 5.477A4.072 4.072 0 012.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84"></path></svg>
+</a>
+<a class="text-gray-400 hover:text-primary" href="#">
+<span class="sr-only">GitHub</span>
+<svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill-rule="evenodd"></path></svg>
+</a>
+</div>
+</div>
+<div class="mt-12 grid grid-cols-2 gap-8 xl:mt-0 xl:col-span-2">
+<div class="md:grid md:grid-cols-2 md:gap-8">
+<div>
+<h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase">Soluciones</h3>
+<ul class="mt-4 space-y-4">
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Integración Google</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Escaneo de Docs</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Colaboración</a></li>
+</ul>
+</div>
+<div class="mt-12 md:mt-0">
+<h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase">Soporte</h3>
+<ul class="mt-4 space-y-4">
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Documentación</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Estado de API</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Contacto</a></li>
+</ul>
+</div>
+</div>
+<div class="md:grid md:grid-cols-2 md:gap-8">
+<div>
+<h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase">Empresa</h3>
+<ul class="mt-4 space-y-4">
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Nosotros</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Blog</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Empleo</a></li>
+</ul>
+</div>
+<div class="mt-12 md:mt-0">
+<h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wider uppercase">Legal</h3>
+<ul class="mt-4 space-y-4">
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Privacidad</a></li>
+<li><a class="text-base text-gray-600 dark:text-gray-300 hover:text-primary" href="#">Términos</a></li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-12 border-t border-gray-200 dark:border-gray-800 pt-8">
+<p class="text-base text-gray-400 xl:text-center">© 2023 Recibox, Inc. Todos los derechos reservados.</p>
+</div>
+</div>
+</footer>
+<script>
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const themeIcon = themeToggleBtn.querySelector('.material-symbols-outlined');
+        // Check for saved user preference, if any, on load of the website
+        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+            themeIcon.textContent = 'light_mode';
+        } else {
+            document.documentElement.classList.remove('dark');
+            themeIcon.textContent = 'dark_mode';
+        }
+        themeToggleBtn.addEventListener('click', function() {
+            // if set via local storage previously
+            if (localStorage.getItem('color-theme')) {
+                if (localStorage.getItem('color-theme') === 'light') {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('color-theme', 'dark');
+                    themeIcon.textContent = 'light_mode';
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('color-theme', 'light');
+                    themeIcon.textContent = 'dark_mode';
+                }
+            // if NOT set via local storage previously
+            } else {
+                if (document.documentElement.classList.contains('dark')) {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('color-theme', 'light');
+                    themeIcon.textContent = 'dark_mode';
+                } else {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('color-theme', 'dark');
+                    themeIcon.textContent = 'light_mode';
+                }
+            }
+        });
+    </script>
+</body></html>
