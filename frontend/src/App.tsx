@@ -378,6 +378,7 @@ function BackofficeApp() {
   const [adoptingReciboxFolder, setAdoptingReciboxFolder] = useState(false)
   const [showStorageConfirmModal, setShowStorageConfirmModal] = useState(false)
   const [pendingStorageAction, setPendingStorageAction] = useState<PendingStorageAction | null>(null)
+  const [showTutorialModal, setShowTutorialModal] = useState(false)
   const [processingPreferencesLoading, setProcessingPreferencesLoading] = useState(false)
   const [processingPreferencesSaving, setProcessingPreferencesSaving] = useState(false)
   const [processingPreferencesError, setProcessingPreferencesError] = useState('')
@@ -1208,11 +1209,21 @@ function BackofficeApp() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand-wrap">
-          <img className="brand-icon" src="/assets/branding/recibox-logo.png" alt="RECIBOX" />
+          <img className="brand-icon" src="/assets/branding/logo512.svg" alt="RECIBOX" />
           <span className="brand-text">RECIBOX</span>
           {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label}</span>}
         </div>
         <div className="topbar-right">
+          <button type="button" className="topbar-icon-btn" aria-label="Notificaciones">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0-6 6v3.7L4.5 15a1 1 0 0 0 .75 1.67h13.5A1 1 0 0 0 19.5 15L18 12.7V9a6 6 0 0 0-6-6Zm0 18a3 3 0 0 0 2.82-2H9.18A3 3 0 0 0 12 21Z" />
+            </svg>
+          </button>
+          <div className="topbar-divider" />
+          <div className="topbar-user-text">
+            <p>Admin User</p>
+            <span>Administrador</span>
+          </div>
           <div className="profile-popover-wrap" ref={profilePopoverRef}>
             <button
               type="button"
@@ -1257,90 +1268,177 @@ function BackofficeApp() {
               className={`menu-item ${activeSection === 'cuenta' ? 'active' : ''}`}
               onClick={() => handleSectionChange('cuenta')}
             >
-              Cuenta
-            </button>
-            <button
-              type="button"
-              className={`menu-item ${activeSection === 'procesar' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('procesar')}
-            >
-              Procesar
+              <span className="menu-item-inner">
+                <span className="menu-glyph">▦</span>
+                <span>Cuentas</span>
+              </span>
             </button>
             <button
               type="button"
               className={`menu-item ${activeSection === 'nomina' ? 'active' : ''}`}
               onClick={() => handleSectionChange('nomina')}
             >
-              Nomina
+              <span className="menu-item-inner">
+                <span className="menu-glyph">◉</span>
+                <span>Colaboradores</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'procesar' ? 'active' : ''}`}
+              onClick={() => handleSectionChange('procesar')}
+            >
+              <span className="menu-item-inner">
+                <span className="menu-glyph">▤</span>
+                <span>Procesar</span>
+              </span>
+            </button>
+            <button type="button" className="menu-item menu-item-disabled" disabled>
+              <span className="menu-item-inner">
+                <span className="menu-glyph">◫</span>
+                <span>Reportes</span>
+              </span>
             </button>
             <button
               type="button"
               className={`menu-item ${activeSection === 'configuracion' ? 'active' : ''}`}
               onClick={() => handleSectionChange('configuracion')}
             >
-              Configuracion
+              <span className="menu-item-inner">
+                <span className="menu-glyph">⚙</span>
+                <span>Configuración</span>
+              </span>
             </button>
           </nav>
+          <div className="sidebar-plan-card">
+            <p className="sidebar-plan-label">Plan actual</p>
+            <p className="sidebar-plan-name">Empresarial Pro</p>
+            <div className="sidebar-plan-meter">
+              <span />
+            </div>
+            <p className="sidebar-plan-usage">75% del almacenamiento</p>
+          </div>
         </aside>
 
         {activeSection === 'cuenta' && (
-          <main className={`content ${isConnected ? 'connected-mode' : ''}`}>
-            {initialLoading ? (
-              <section className="main-card" aria-label="Cargando estado OAuth">
-                <h1>Cargando</h1>
-                <h2>Verificando conexión de Google Drive...</h2>
-              </section>
-            ) : isConnected ? (
+          <main className={`content ${initialLoading || isConnected ? 'connected-mode' : ''}`}>
+            {initialLoading || isConnected ? (
               <>
-                <section className="connected-card" aria-label="Cuenta conectada">
-                  <div className="connected-left">
-                    <div className="drive-badge">
-                      <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
-                    </div>
-                    <div className="connected-text">
-                      <h3>Cuenta conectada</h3>
-                      <p>Nombre del usuario</p>
-                    </div>
-                  </div>
-                  <button type="button" className="disconnect-btn" onClick={disconnectGoogleDrive} disabled={actionLoading}>
-                    {actionLoading ? 'Desconectando...' : 'Desconectar'}
-                  </button>
+                <section className="accounts-header" aria-label="Encabezado de cuentas conectadas">
+                  <h2>Cuentas de Almacenamiento</h2>
+                  <p>Gestiona tus conexiones de Google Drive y configura las rutas de sincronización.</p>
                 </section>
 
-                <section className="storage-card" aria-label="Ubicación de almacenamiento">
-                  <h4>Ruta de almacenamiento</h4>
-                  {storageLoading && <p>Verificando estructura /root/RECIBOX/#0 INPUT...</p>}
-                  {!storageLoading && storageError && <p className="oauth-feedback error">{storageError}</p>}
-                  {!storageLoading && !storageError && storageInfo && (
-                    <div className="storage-row">
-                      <p>Mi Drive/Recibox</p>
-                      <button
-                        type="button"
-                        className="open-storage-btn"
-                        onClick={() => window.open(`https://drive.google.com/drive/folders/${storageInfo.reciboxFolderId}`, '_blank')}
-                      >
-                        Abrir
-                      </button>
+                <section className="accounts-panel" aria-label="Cuenta conectada de Google Drive">
+                  <div className="account-card-stack">
+                    <article className="account-row">
+                      <div className="account-row-main">
+                        <div className="account-avatar">
+                          <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
+                        </div>
+                        <div className="account-meta">
+                          <h3>{authEmail || `${tenantId}@recibox.local`}</h3>
+                          <p>{storageInfo ? 'Mi Drive/ RECIBOX' : 'Validando ruta de sincronización...'}</p>
+                        </div>
+                      </div>
+                      <div className="account-actions">
+                        <button
+                          type="button"
+                          className="open-storage-btn"
+                          onClick={() => {
+                            if (storageInfo?.reciboxFolderId) {
+                              window.open(`https://drive.google.com/drive/folders/${storageInfo.reciboxFolderId}`, '_blank')
+                            }
+                          }}
+                          disabled={!storageInfo?.reciboxFolderId || initialLoading || storageLoading}
+                        >
+                          <span className="account-action-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3ZM5 5h6v2H7v10h10v-4h2v6H5V5Z" />
+                            </svg>
+                          </span>
+                          Abrir carpeta
+                        </button>
+                        <button
+                          type="button"
+                          className="disconnect-btn"
+                          onClick={disconnectGoogleDrive}
+                          disabled={actionLoading || initialLoading || storageLoading}
+                        >
+                          <span className="account-action-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <path d="M13 3v2h5v14h-5v2h7V3h-7ZM4 12l4-4v3h8v2H8v3l-4-4Z" />
+                            </svg>
+                          </span>
+                          {actionLoading ? 'Desconectando...' : 'Desconectar'}
+                        </button>
+                      </div>
+                    </article>
+
+                    {(initialLoading || storageLoading) && (
+                      <div className="account-row-overlay" role="status" aria-live="polite" aria-label="Validando conexión">
+                        <div className="account-row-overlay-avatar">
+                          <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="" aria-hidden="true" />
+                          <span className="account-row-overlay-spinner" />
+                        </div>
+                        <p>Validando conexión</p>
+                      </div>
+                    )}
+                  </div>
+                  <button type="button" className="add-connection-row" disabled aria-label="Añadir nueva conexión (deshabilitado)">
+                    <span className="add-connection-circle">+</span>
+                    <span>Añadir nueva conexión de Google Drive</span>
+                  </button>
+
+                  {storageError && <p className="oauth-feedback error">{storageError}</p>}
+                </section>
+
+                <section className="accounts-help-card" aria-label="Ayuda de rutas">
+                  <div className="accounts-help-left">
+                    <span className="accounts-help-icon">i</span>
+                    <div>
+                      <p className="accounts-help-title">¿Necesitas ayuda con las rutas?</p>
+                      <p className="accounts-help-text">Consulta nuestra guía sobre cómo organizar tus carpetas de Drive.</p>
                     </div>
-                  )}
+                  </div>
+                  <button type="button" className="accounts-help-link" onClick={() => setShowTutorialModal(true)}>
+                    Ver tutorial
+                  </button>
                 </section>
               </>
             ) : (
               <section className="main-card" aria-label="Conectar Google Drive">
-                <h1>Para iniciar</h1>
-                <h2 className="connect-title">Conectá con tu cuenta de Google Drive</h2>
-
                 <div className="logos-row">
-                  <img className="recibox-large" src="/assets/branding/recibox-logo.png" alt="Recibox" />
-                  <span className="arrow">→</span>
+                  <div className="recibox-tile">
+                    <img className="recibox-large" src="/assets/branding/logo512.svg" alt="Recibox" />
+                  </div>
+                  <span className="arrow">↺</span>
                   <div className="drive-wrap">
                     <img className="drive-large" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
                   </div>
                 </div>
+                <h2 className="connect-title">Empecemos a organizar tu mundo</h2>
+                <p className="connect-description">
+                  Conecta tu cuenta de almacenamiento para permitir que Recibox procese tus documentos
+                  automáticamente de forma segura.
+                </p>
 
                 <button type="button" className="connect-btn" onClick={connectGoogleDrive}>
-                  Conectar
+                  <img className="connect-btn-icon" src="/assets/branding/google-drive-logo.png" alt="" aria-hidden="true" />
+                  Conectar con Google Drive
                 </button>
+                <div className="connect-security-box">
+                  <span className="connect-security-icon">◔</span>
+                  <p>
+                    <strong>Seguridad garantizada:</strong> Tus archivos se mantienen en tu Drive, nosotros solo los
+                    organizamos y clasificamos por ti.
+                  </p>
+                </div>
+                <div className="connect-links">
+                  <a href="#">Privacidad</a>
+                  <span>•</span>
+                  <a href="#">Soporte Técnico</a>
+                </div>
               </section>
             )}
             {oauthFeedback.type && <p className={`oauth-feedback ${oauthFeedback.type}`}>{oauthFeedback.text}</p>}
@@ -1957,6 +2055,89 @@ function BackofficeApp() {
               </button>
               <button type="button" className="modal-primary" onClick={() => void confirmStorageAction()}>
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTutorialModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Tutorial de carpetas">
+          <div className="modal-card tutorial-modal tutorial-structure-modal">
+            <div className="tutorial-structure-header">
+              <div className="tutorial-structure-brand">
+                <span className="tutorial-structure-logo">▣</span>
+                <div>
+                  <p className="tutorial-structure-brand-title">Recibox</p>
+                  <p className="tutorial-structure-brand-subtitle">Estructura de archivos</p>
+                </div>
+              </div>
+              <button type="button" className="tutorial-close-btn" onClick={() => setShowTutorialModal(false)} aria-label="Cerrar tutorial">
+                ✕
+              </button>
+            </div>
+
+            <div className="tutorial-structure-body">
+              <h3>Lógica de Carpetas</h3>
+              <p className="tutorial-structure-subtitle">Entiende cómo organizamos tus documentos automáticamente en Google Drive.</p>
+
+              <div className="tutorial-structure-grid">
+                <section className="tutorial-tree-card" aria-label="Estructura principal">
+                  <div className="tutorial-tree-root">
+                    <span className="tutorial-tree-root-icon">📁</span>
+                    <div>
+                      <p className="tutorial-tree-kicker">Carpeta principal</p>
+                      <p className="tutorial-tree-title">Carpeta Proyecto (ej: RECIBOX)</p>
+                    </div>
+                  </div>
+                  <div className="tutorial-tree-node">
+                    <span className="tutorial-node-dot" />
+                    <div>
+                      <p className="tutorial-node-title">Bandeja de Entrada (INPUT)</p>
+                      <p className="tutorial-node-text">Sube aquí tus archivos para procesar</p>
+                    </div>
+                  </div>
+                  <div className="tutorial-tree-node">
+                    <span className="tutorial-node-dot" />
+                    <div>
+                      <p className="tutorial-node-title">Clasificación</p>
+                      <p className="tutorial-node-text">Archivos organizados automáticamente</p>
+                    </div>
+                  </div>
+                  <div className="tutorial-tree-subnode">
+                    <span>Nombre del Colaborador</span>
+                  </div>
+                  <div className="tutorial-tree-subnode">
+                    <span>Año Fiscal (ej: 2024)</span>
+                  </div>
+                </section>
+
+                <div className="tutorial-info-col">
+                  <section className="tutorial-info-card tutorial-info-card-primary" aria-label="Funcionamiento automático">
+                    <h4>Funcionamiento Automático</h4>
+                    <p>
+                      Recibox organiza todo en una carpeta principal (por defecto <strong>RECIBOX</strong>) y requiere una subcarpeta <strong>INPUT</strong> para funcionar.
+                    </p>
+                    <p>
+                      Si eliges una carpeta existente y no tiene <strong>INPUT</strong>, la creamos por ti automáticamente.
+                    </p>
+                  </section>
+                  <section className="tutorial-info-card" aria-label="Dato útil">
+                    <h4>¿Sabías que?</h4>
+                    <p>
+                      Cualquier PDF que muevas a la carpeta INPUT será detectado, clasificado y guardado en la carpeta del colaborador correspondiente en segundos.
+                    </p>
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <div className="tutorial-structure-footer">
+              <button type="button" className="modal-secondary" onClick={() => setShowTutorialModal(false)}>
+                Cerrar
+              </button>
+              <button type="button" className="modal-primary tutorial-ok-btn" onClick={() => setShowTutorialModal(false)}>
+                Entendido
               </button>
             </div>
           </div>
