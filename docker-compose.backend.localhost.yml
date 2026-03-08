@@ -10,6 +10,14 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - recibox_local_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recibox} -d ${POSTGRES_DB:-recibox_local}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - recibox-local
 
   recibox-redis:
     image: redis:7-alpine
@@ -18,6 +26,14 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - recibox_local_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - recibox-local
 
   recibox-api:
     build:
@@ -40,7 +56,7 @@ services:
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
       GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-false}
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-true}
       DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
       DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
       DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
@@ -57,6 +73,14 @@ services:
       - recibox_local_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
       - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - recibox-local
 
   recibox-worker:
     build:
@@ -81,7 +105,7 @@ services:
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
       GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
-      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-false}
+      OAUTH_REQUIRED_FOR_TENANT: ${OAUTH_REQUIRED_FOR_TENANT:-true}
       DRIVE_SUPPORTS_ALL_DRIVES: ${DRIVE_SUPPORTS_ALL_DRIVES:-true}
       DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES: ${DRIVE_INCLUDE_ITEMS_FROM_ALL_DRIVES:-true}
       DRIVE_PAGE_SIZE: ${DRIVE_PAGE_SIZE:-1000}
@@ -96,8 +120,14 @@ services:
       - recibox_local_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
       - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+    networks:
+      - recibox-local
 
 volumes:
   recibox_local_postgres_data:
   recibox_local_redis_data:
   recibox_local_tmp_data:
+
+networks:
+  recibox-local:
+    driver: bridge

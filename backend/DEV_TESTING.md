@@ -45,13 +45,13 @@ Minimo para dev (archivo `backend/.env`):
 ```env
 REDIS_URL=redis://localhost:6379/0
 GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/auth/google/callback
-OAUTH_REQUIRED_FOR_TENANT=FALSE
+OAUTH_REQUIRED_FOR_TENANT=TRUE
 ```
 
 Notas:
 - API corre en `8000`.
 - Redis corre en `6379`.
-- Si queres simular prod OAuth-only, usar `OAUTH_REQUIRED_FOR_TENANT=TRUE`.
+- Recomendado mantener `OAUTH_REQUIRED_FOR_TENANT=TRUE` en todos los entornos.
 - `DRIVE_INPUT_FOLDER_ID` y `DRIVE_ROOT_FOLDER_ID` ahora son opcionales (fallback).
 - Si no definis fallback, debes configurar carpetas por tenant con:
   - `PUT /tenants/{tenant_id}/drive-config`

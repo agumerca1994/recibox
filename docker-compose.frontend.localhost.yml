@@ -19,5 +19,13 @@ services:
       API_UPSTREAM: ${API_UPSTREAM:-http://recibox-api:8000}
       API_UPSTREAM_HOST: ${API_UPSTREAM_HOST:-recibox-api}
       VITE_APP_ENV: localhost
+    depends_on:
+      - recibox-api
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - recibox-local
+
+networks:
+  recibox-local:
+    driver: bridge
