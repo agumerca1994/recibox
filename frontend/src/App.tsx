@@ -1595,22 +1595,24 @@ function BackofficeApp() {
               <h2>Procesar documentos</h2>
               <p>Gestiona archivos pendientes, ejecuta procesos y revisa resultados.</p>
             </section>
-            <div className="process-grid">
-              <section className="summary-card" aria-label="Archivos pendientes">
-                <p>Archivos pendientes de procesar</p>
-                <strong>{pendingFiles.length}</strong>
-                <span>Archivos PDF</span>
-              </section>
-              <section className="summary-card" aria-label="Archivos procesados">
-                <p>Archivos procesados</p>
-                <strong>{processedCount}</strong>
-                <span>Archivos PDF</span>
-              </section>
-              <section className="summary-card" aria-label="Archivos con error">
-                <p>Archivos que no se pudieron procesar</p>
-                <strong>{errorCount}</strong>
-                <span>Archivos PDF</span>
-              </section>
+            <div className="process-stack">
+              <div className="process-summary">
+                <section className="summary-card" aria-label="Archivos pendientes">
+                  <p>Archivos pendientes de procesar</p>
+                  <strong>{pendingFiles.length}</strong>
+                  <span>Archivos PDF</span>
+                </section>
+                <section className="summary-card" aria-label="Archivos procesados">
+                  <p>Archivos procesados</p>
+                  <strong>{processedCount}</strong>
+                  <span>Archivos PDF</span>
+                </section>
+                <section className="summary-card" aria-label="Archivos con error">
+                  <p>Archivos que no se pudieron procesar</p>
+                  <strong>{errorCount}</strong>
+                  <span>Archivos PDF</span>
+                </section>
+              </div>
 
               <section className="pending-card" aria-label="Tabla de pendientes">
                 <div className="pending-header">
@@ -1665,8 +1667,8 @@ function BackofficeApp() {
                   >
                     Agregar archivos
                   </button>
-                </div>
-              </section>
+                  </div>
+                </section>
 
               <section className="jobs-card" aria-label="Tabla de procesos">
                 <table className="jobs-table">
@@ -2026,12 +2028,11 @@ function BackofficeApp() {
                   </div>
                 </div>
                 <div className="pending-table-wrapper">
-                  <table className="pending-table files-table">
-                    <colgroup>
-                      <col />
-                      <col className="files-action-col" />
-                      <col className="files-action-col" />
-                    </colgroup>
+                    <table className="pending-table files-table">
+                      <colgroup>
+                        <col />
+                        <col className="files-action-col" />
+                      </colgroup>
                     <tbody>
                       {nominaFilesLoading && (
                         <tr>
@@ -2047,28 +2048,26 @@ function BackofficeApp() {
                         nominaFiles.map((file) => (
                           <tr key={file.id}>
                             <td title={file.name}>{file.name}</td>
-                            <td className="doc-actions">
-                              <button
-                                type="button"
-                                className="doc-action-text-btn doc-action-view"
-                                onClick={() => openDriveFile(file.id)}
-                                title="Ver en Drive"
-                                aria-label="Ver en Drive"
-                              >
-                                Ver
-                              </button>
-                            </td>
-                            <td className="doc-actions">
-                              <button
-                                type="button"
-                                className="doc-action-text-btn doc-action-download"
-                                onClick={() => downloadDriveFile(file.id)}
-                                title="Descargar"
-                                aria-label="Descargar archivo"
-                              >
-                                Descargar
-                              </button>
-                            </td>
+                              <td className="doc-actions">
+                                <button
+                                  type="button"
+                                  className="doc-action-text-btn doc-action-view"
+                                  onClick={() => openDriveFile(file.id)}
+                                  title="Ver en Drive"
+                                  aria-label="Ver en Drive"
+                                >
+                                  Ver
+                                </button>
+                                <button
+                                  type="button"
+                                  className="doc-action-text-btn doc-action-download"
+                                  onClick={() => downloadDriveFile(file.id)}
+                                  title="Descargar"
+                                  aria-label="Descargar archivo"
+                                >
+                                  Descargar
+                                </button>
+                              </td>
                           </tr>
                         ))}
                     </tbody>
