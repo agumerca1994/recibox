@@ -71,8 +71,8 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - recibox_local_tmp_data:/app/backend/tmp
-      - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+      - ${SECRETS_DIR:-./test/credential/localhost}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-./test/credential/localhost}:/run/oauth-secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
       interval: 15s
@@ -118,8 +118,8 @@ services:
       RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
     volumes:
       - recibox_local_tmp_data:/app/backend/tmp
-      - ${SECRETS_DIR:-./test/credential}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-./test/credential}:/run/oauth-secrets:ro
+      - ${SECRETS_DIR:-./test/credential/localhost}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-./test/credential/localhost}:/run/oauth-secrets:ro
     networks:
       - recibox-local
 

@@ -640,23 +640,28 @@ async def google_oauth_login(
     popup: bool = Query(False),
 ):
     try:
-        state_payload = {"tenant_id": tenant_id, "popup": popup}
-        url = google_oauth.get_authorization_url(json.dumps(state_payload))
+        code_verifier = google_oauth.generate_code_verifier()
+        state_payload = {"tenant_id": tenant_id, "popup": popup, "cv": code_verifier}
+        url = google_oauth.get_authorization_url(
+            json.dumps(state_payload),
+            code_verifier=code_verifier,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return RedirectResponse(url=url)
 
 
-def _parse_oauth_state(state: str) -> tuple[str, bool]:
+def _parse_oauth_state(state: str) -> tuple[str, bool, str | None]:
     try:
         data = json.loads(state)
     except Exception:
-        return state, False
+        return state, False, None
     if not isinstance(data, dict):
-        return state, False
+        return state, False, None
     tenant_id = str(data.get("tenant_id", "default"))
     popup = bool(data.get("popup", False))
-    return tenant_id, popup
+    code_verifier = str(data.get("cv", "")).strip() or None
+    return tenant_id, popup, code_verifier
 
 
 def _oauth_popup_callback_html(tenant_id: str, ok: bool, message: str) -> str:
@@ -711,9 +716,13 @@ async def google_oauth_popup_bridge(payload: str = Query("{}")):
 
 @router.get("/auth/google/callback")
 async def google_oauth_callback(code: str, state: str = Query("default")):
-    tenant_id, popup = _parse_oauth_state(state)
+    tenant_id, popup, code_verifier = _parse_oauth_state(state)
     try:
-        google_oauth.exchange_code_for_token(tenant_id, code)
+        google_oauth.exchange_code_for_token(
+            tenant_id,
+            code,
+            code_verifier=code_verifier,
+        )
         redis_conn = get_redis()
         set_tenant_disabled(redis_conn, tenant_id, False)
     except Exception as exc:

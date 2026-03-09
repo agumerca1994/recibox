@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from secrets import choice
 from typing import Iterable
 from urllib import parse, request
 
@@ -9,6 +10,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 
 from app.core.config import settings
+
+
+_PKCE_VERIFIER_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
 
 
 def _scopes() -> list[str]:
@@ -44,7 +48,17 @@ def ensure_fresh_credentials(tenant_id: str) -> Credentials:
     return creds
 
 
-def build_flow(redirect_uri: str | None = None) -> Flow:
+def generate_code_verifier(length: int = 96) -> str:
+    # RFC 7636 allows 43..128 characters from the unreserved URI charset.
+    if length < 43 or length > 128:
+        raise ValueError("PKCE code verifier length must be between 43 and 128")
+    return "".join(choice(_PKCE_VERIFIER_CHARS) for _ in range(length))
+
+
+def build_flow(
+    redirect_uri: str | None = None,
+    code_verifier: str | None = None,
+) -> Flow:
     client_secrets = settings.google_oauth_client_secrets
     if not client_secrets:
         raise RuntimeError("GOOGLE_OAUTH_CLIENT_SECRETS is not configured")
@@ -55,22 +69,27 @@ def build_flow(redirect_uri: str | None = None) -> Flow:
         client_secrets,
         scopes=_scopes(),
         redirect_uri=target_redirect,
+        code_verifier=code_verifier,
     )
 
 
-def get_authorization_url(tenant_id: str) -> str:
-    flow = build_flow()
+def get_authorization_url(state: str, code_verifier: str | None = None) -> str:
+    flow = build_flow(code_verifier=code_verifier)
     auth_url, _state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=tenant_id,
+        state=state,
     )
     return auth_url
 
 
-def exchange_code_for_token(tenant_id: str, code: str) -> Credentials:
-    flow = build_flow()
+def exchange_code_for_token(
+    tenant_id: str,
+    code: str,
+    code_verifier: str | None = None,
+) -> Credentials:
+    flow = build_flow(code_verifier=code_verifier)
     flow.fetch_token(code=code)
     creds = flow.credentials
     save_credentials(tenant_id, creds)
