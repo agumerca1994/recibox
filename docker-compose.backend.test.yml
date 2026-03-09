@@ -56,7 +56,7 @@ services:
     volumes:
       - recibox_test_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-/opt/recibox-credentials/test}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials/test}:/run/oauth-secrets:ro
     networks:
       - test-internal
       - easypanel
@@ -98,7 +98,7 @@ services:
     volumes:
       - recibox_test_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-/opt/recibox-credentials/test}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials/test}:/run/oauth-secrets:ro
     networks:
       - test-internal
       - easypanel

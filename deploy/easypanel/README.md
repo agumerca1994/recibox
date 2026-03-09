@@ -86,22 +86,22 @@ Servicio esperado:
 
 El compose test usa por default:
 
-- `${TEST_SECRETS_DIR:-/opt/recibox-credentials/test}:/run/secrets:ro`
-- `${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro`
+- `${SECRETS_DIR:-/opt/recibox-credentials/test}:/run/secrets:ro`
+- `${OAUTH_SECRETS_DIR:-/opt/recibox-credentials/test}:/run/oauth-secrets:ro`
 
-En el directorio `TEST_SECRETS_DIR` debes tener (credenciales test):
+En el directorio `SECRETS_DIR` debes tener (credenciales test):
 
 - `/opt/recibox-credentials/test/service-account.json`
 - `/opt/recibox-credentials/test/firebase-admin.json`
 - `/opt/recibox-credentials/test/recibox-76a50-firebase-adminsdk-....json`
 
-En el directorio `OAUTH_SECRETS_DIR` debes tener (compartido test/prod):
+En el directorio `OAUTH_SECRETS_DIR` debes tener:
 
-- `/opt/recibox-credentials/oauth-client.json` o el archivo real de Google (por ejemplo `client_secret_...json`)
+- `/opt/recibox-credentials/test/oauth-client.json` o el archivo real de Google (por ejemplo `client_secret_...json`)
 
 Opcionalmente define en EasyPanel:
 
-- `TEST_SECRETS_DIR`
+- `SECRETS_DIR`
 - `OAUTH_SECRETS_DIR`
 - `FIREBASE_PROJECT_ID` (proyecto Firebase de test)
 - `GOOGLE_OAUTH_CLIENT_SECRETS_FILE` (default: `oauth-client.json`)
