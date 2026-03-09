@@ -36,7 +36,7 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
       FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
-      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/oauth-secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-https://api.recibox.com.ar/auth/google/callback}
       GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
@@ -56,6 +56,7 @@ services:
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
     networks:
       - prod-internal
       - easypanel
@@ -79,7 +80,7 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/${GOOGLE_APPLICATION_CREDENTIALS_FILE:-service-account.json}
       FIREBASE_CREDENTIALS_PATH: /run/secrets/${FIREBASE_CREDENTIALS_FILE:-firebase-admin.json}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-recibox-76a50}
-      GOOGLE_OAUTH_CLIENT_SECRETS: /run/secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
+      GOOGLE_OAUTH_CLIENT_SECRETS: /run/oauth-secrets/${GOOGLE_OAUTH_CLIENT_SECRETS_FILE:-oauth-client.json}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-https://api.recibox.com.ar/auth/google/callback}
       GOOGLE_OAUTH_SCOPES: ${GOOGLE_OAUTH_SCOPES:-https://www.googleapis.com/auth/drive}
       GOOGLE_OAUTH_TOKEN_DIR: /app/backend/tmp/google_tokens
@@ -97,6 +98,7 @@ services:
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
       - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
     networks:
       - prod-internal
       - easypanel

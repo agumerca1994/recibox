@@ -39,14 +39,13 @@ Módulos previstos:
 
 ## Configuración Google Drive
 
-1) Crear un proyecto en Google Cloud y habilitar la API de Google Drive.
-2) Crear una cuenta de servicio y generar una clave JSON.
-3) Compartir la carpeta INPUT y la carpeta raíz RECIBOX con el email de la cuenta de servicio.
-4) Configurar `.env` con:
-   - `GOOGLE_APPLICATION_CREDENTIALS`
-   - (Opcional fallback) `DRIVE_INPUT_FOLDER_ID`
-   - (Opcional fallback) `DRIVE_ROOT_FOLDER_ID`
-   - (Opcional) `GOOGLE_SUBJECT` si usas delegación de dominio.
+Modo recomendado: OAuth por tenant (sin service account).
+
+Configurar `.env` con:
+- (Opcional fallback legado) `GOOGLE_APPLICATION_CREDENTIALS`
+- (Opcional fallback) `DRIVE_INPUT_FOLDER_ID`
+- (Opcional fallback) `DRIVE_ROOT_FOLDER_ID`
+- (Opcional) `GOOGLE_SUBJECT` si usas delegación de dominio.
 
 ## OAuth 2.0 (usuario final por tenant)
 
@@ -117,8 +116,8 @@ Recomendado en multi-tenant:
 - Prod: usar variables/mounts en `docker-compose.backend.prod.yml` (o UI de EasyPanel).
 
 En ambos casos, la app dentro del contenedor debe leer rutas internas como:
-- `/run/secrets/service-account.json`
-- `/run/secrets/oauth-client.json`
+- `/run/secrets/firebase-admin.json`
+- `/run/oauth-secrets/oauth-client.json`
 
 Para prod con OAuth por tenant:
 - `OAUTH_REQUIRED_FOR_TENANT=true`

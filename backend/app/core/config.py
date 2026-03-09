@@ -5,7 +5,8 @@ class Settings(BaseSettings):
     env: str = "dev"
     log_level: str = "INFO"
 
-    google_application_credentials: str
+    # Optional legacy fallback; OAuth per tenant is the primary auth mode.
+    google_application_credentials: str | None = None
     google_oauth_client_secrets: str | None = None
     google_oauth_redirect_uri: str | None = None
     google_oauth_scopes: str = "https://www.googleapis.com/auth/drive"

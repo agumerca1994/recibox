@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preguntas Frecuentes Recibox</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/branding/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: "#9CCB3B",
+              "background-light": "#f7f8f5",
+              "surface-light": "#ffffff",
+              "text-primary-light": "#141811",
+              "text-secondary-light": "#728a60",
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+            },
+            borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-background-light font-display antialiased">
+    <div class="relative flex min-h-screen w-full flex-col overflow-x-hidden">
+      <nav class="fixed w-full z-50 bg-white/95 backdrop-blur-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex justify-between h-20 items-center">
+            <a class="flex items-center gap-2" href="/home"><img alt="Logo Recibox" class="h-10 w-auto" src="/assets/branding/logo_recibox.svg" /></a>
+            <div class="hidden md:flex space-x-6 items-center">
+              <details class="relative">
+                <summary class="list-none cursor-pointer text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1">
+                  <span>RECIBOX</span><span class="material-symbols-outlined text-base">expand_more</span>
+                </summary>
+                <div class="absolute right-0 mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl p-3 z-50">
+                  <a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/planes">Planes</a>
+                  <a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/home#funcionalidades">Funcionalidades</a>
+                  <details class="px-3 py-2 rounded-md text-sm hover:bg-gray-50">
+                    <summary class="list-none cursor-pointer flex items-center justify-between"><span>Nosotros</span><span class="material-symbols-outlined text-base">chevron_right</span></summary>
+                    <div class="mt-2 pl-2 border-l border-gray-200">
+                      <a class="block py-1.5 text-sm hover:text-primary" href="/terminos-y-condiciones">Terminos y condiciones</a>
+                      <a class="block py-1.5 text-sm hover:text-primary" href="/politicas-de-privacidad">Politicas de privacidad</a>
+                    </div>
+                  </details>
+                  <a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/preguntas-frecuentes">Preguntas Frecuentes</a>
+                </div>
+              </details>
+              <a class="text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="/home#app-movil">App Movil</a>
+              <a class="bg-primary text-white hover:bg-opacity-90 px-5 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg hover:shadow-xl" data-backoffice-link="" href="https://backoffice.recibox.com.ar/" rel="noopener noreferrer" target="_blank">BACKOFFICE</a>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main class="flex-grow pt-20">
+        <div class="layout-container flex flex-col items-center">
+          <div class="w-full px-4 md:px-10 py-12 md:py-20 max-w-[1200px]">
+            <div class="flex flex-col-reverse md:flex-row gap-10 items-center">
+              <div class="flex flex-col gap-6 md:w-1/2">
+                <div class="flex flex-col gap-4 text-left">
+                  <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 w-fit">
+                    <span class="material-symbols-outlined text-primary text-sm">help</span>
+                    <span class="text-text-primary-light text-xs font-bold uppercase tracking-wide">Soporte</span>
+                  </div>
+                  <h1 class="text-text-primary-light text-4xl md:text-5xl lg:text-6xl font-black leading-tight tracking-tight">Preguntas Frecuentes</h1>
+                  <h2 class="text-text-secondary-light text-lg font-normal leading-relaxed max-w-lg">Todo lo que necesitas saber sobre Recibox, la gestión de documentos segura e intuitiva. Resolvemos tus dudas para que trabajes con tranquilidad.</h2>
+                </div>
+                <div class="flex gap-4 pt-2">
+                  <a class="flex items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-primary hover:bg-[#5bdb0b] text-[#141811] text-base font-bold leading-normal tracking-wide transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5" href="/home#funcionalidades">Ver documentación</a>
+                  <a class="flex items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-white border border-slate-200 text-text-primary-light font-bold leading-normal tracking-wide transition-colors hover:bg-slate-50" href="/home#app-movil">Tutoriales</a>
+                </div>
+              </div>
+
+              <div class="w-full md:w-1/2 flex justify-center">
+                <div class="relative w-full aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl bg-gradient-to-br from-[#e0f7cd] to-[#f0fdf4] flex items-center justify-center group">
+                  <div class="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_50%_120%,rgba(108,242,13,0.4),transparent_70%)]"></div>
+                  <img alt="Equipo de soporte" class="w-full h-full object-cover mix-blend-overlay opacity-60" src="https://lh3.googleusercontent.com/aida-public/AB6AXuByC-0Y3GjIIvnG8aWo4YlqprdyNzPmXFCOrjA4i5tZEhmOwbWUAe2Fwya4QsB5eBx9QC42Vd1LIm3FGwe4MJqDBoLBWfRZUz031i_IxtBH3Qr-SXFXs1Z1EeubwP2R7wsDtqVCQcTwwggpGmOGTD1BuFVK7zwcoo1QkBam4LZi4MZ2m8JCxFidjUgTTOP2621oSCXosmuHrFu66KLp1MYkfTZmI1rQmglDpLUtPMRrgBzWgZODMSI8BTSKRFCJVli57lMq-03OTy4" />
+                  <div class="absolute inset-0 flex items-center justify-center">
+                    <div class="bg-surface-light/90 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-primary/20 max-w-xs text-center transform transition-transform group-hover:scale-105">
+                      <div class="size-12 bg-primary rounded-full flex items-center justify-center mx-auto mb-4 text-[#141811]">
+                        <span class="material-symbols-outlined text-2xl">support_agent</span>
+                      </div>
+                      <p class="text-text-primary-light font-bold text-lg">¿Necesitas ayuda?</p>
+                      <p class="text-text-secondary-light text-sm mt-1">Estamos aquí para ti 24/7</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="w-full max-w-[800px] px-4 pb-20">
+            <div class="flex flex-col gap-4">
+              <details class="group flex flex-col rounded-xl border border-slate-200 bg-surface-light overflow-hidden transition-all duration-300 hover:shadow-md open:shadow-md open:border-primary/50" open>
+                <summary class="flex cursor-pointer items-center justify-between gap-6 p-6 list-none select-none">
+                  <div class="flex items-center gap-4">
+                    <div class="size-10 rounded-full bg-background-light flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors shrink-0"><span class="material-symbols-outlined">security</span></div>
+                    <h3 class="text-text-primary-light text-lg font-bold leading-normal">¿Es seguro conectar mi Google Drive?</h3>
+                  </div>
+                  <div class="text-text-secondary-light transition-transform duration-300 group-open:rotate-180"><span class="material-symbols-outlined">expand_more</span></div>
+                </summary>
+                <div class="px-6 pb-6 pl-[4.5rem]"><p class="text-text-secondary-light text-base font-normal leading-relaxed">Sí, absolutamente. Recibox utiliza los protocolos de seguridad oficiales de Google (OAuth 2.0) para conectar con tu cuenta. Nunca almacenamos tus contraseñas y solo accedemos a los archivos necesarios para la organización, manteniendo tu privacidad como máxima prioridad.</p></div>
+              </details>
+
+              <details class="group flex flex-col rounded-xl border border-slate-200 bg-surface-light overflow-hidden transition-all duration-300 hover:shadow-md open:shadow-md open:border-primary/50">
+                <summary class="flex cursor-pointer items-center justify-between gap-6 p-6 list-none select-none">
+                  <div class="flex items-center gap-4">
+                    <div class="size-10 rounded-full bg-background-light flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors shrink-0"><span class="material-symbols-outlined">folder_managed</span></div>
+                    <h3 class="text-text-primary-light text-lg font-bold leading-normal">¿Cómo clasifican mis archivos?</h3>
+                  </div>
+                  <div class="text-text-secondary-light transition-transform duration-300 group-open:rotate-180"><span class="material-symbols-outlined">expand_more</span></div>
+                </summary>
+                <div class="px-6 pb-6 pl-[4.5rem]"><p class="text-text-secondary-light text-base font-normal leading-relaxed">Nuestro algoritmo analiza el contenido de tus documentos con OCR y procesamiento de lenguaje natural. Identifica facturas, recibos, contratos y otros documentos, y los organiza automáticamente por fecha, tipo o proveedor en tu Google Drive.</p></div>
+              </details>
+
+              <details class="group flex flex-col rounded-xl border border-slate-200 bg-surface-light overflow-hidden transition-all duration-300 hover:shadow-md open:shadow-md open:border-primary/50">
+                <summary class="flex cursor-pointer items-center justify-between gap-6 p-6 list-none select-none">
+                  <div class="flex items-center gap-4">
+                    <div class="size-10 rounded-full bg-background-light flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors shrink-0"><span class="material-symbols-outlined">business_center</span></div>
+                    <h3 class="text-text-primary-light text-lg font-bold leading-normal">¿Puedo usarlo para mi empresa y para uso personal?</h3>
+                  </div>
+                  <div class="text-text-secondary-light transition-transform duration-300 group-open:rotate-180"><span class="material-symbols-outlined">expand_more</span></div>
+                </summary>
+                <div class="px-6 pb-6 pl-[4.5rem]"><p class="text-text-secondary-light text-base font-normal leading-relaxed">Sí. Recibox tiene planes para uso personal y empresarial. También puedes gestionar múltiples cuentas de Google Drive desde un mismo panel, manteniendo tus documentos separados y ordenados.</p></div>
+              </details>
+
+              <details class="group flex flex-col rounded-xl border border-slate-200 bg-surface-light overflow-hidden transition-all duration-300 hover:shadow-md open:shadow-md open:border-primary/50">
+                <summary class="flex cursor-pointer items-center justify-between gap-6 p-6 list-none select-none">
+                  <div class="flex items-center gap-4">
+                    <div class="size-10 rounded-full bg-background-light flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors shrink-0"><span class="material-symbols-outlined">cancel</span></div>
+                    <h3 class="text-text-primary-light text-lg font-bold leading-normal">¿Qué pasa si dejo de usar Recibox?</h3>
+                  </div>
+                  <div class="text-text-secondary-light transition-transform duration-300 group-open:rotate-180"><span class="material-symbols-outlined">expand_more</span></div>
+                </summary>
+                <div class="px-6 pb-6 pl-[4.5rem]"><p class="text-text-secondary-light text-base font-normal leading-relaxed">Tus archivos siempre son tuyos. Como Recibox organiza directamente en tu Google Drive, si cancelas, toda la estructura se mantiene intacta. Solo pierdes la automatización para nuevos documentos.</p></div>
+              </details>
+
+              <details class="group flex flex-col rounded-xl border border-slate-200 bg-surface-light overflow-hidden transition-all duration-300 hover:shadow-md open:shadow-md open:border-primary/50">
+                <summary class="flex cursor-pointer items-center justify-between gap-6 p-6 list-none select-none">
+                  <div class="flex items-center gap-4">
+                    <div class="size-10 rounded-full bg-background-light flex items-center justify-center text-primary group-hover:bg-primary/10 transition-colors shrink-0"><span class="material-symbols-outlined">credit_card</span></div>
+                    <h3 class="text-text-primary-light text-lg font-bold leading-normal">¿Cuáles son los métodos de pago aceptados?</h3>
+                  </div>
+                  <div class="text-text-secondary-light transition-transform duration-300 group-open:rotate-180"><span class="material-symbols-outlined">expand_more</span></div>
+                </summary>
+                <div class="px-6 pb-6 pl-[4.5rem]"><p class="text-text-secondary-light text-base font-normal leading-relaxed">Aceptamos tarjetas de crédito y débito principales mediante una pasarela segura. Para planes empresariales anuales también podemos gestionar transferencia bancaria.</p></div>
+              </details>
+            </div>
+          </div>
+
+          <div class="w-full px-4 mb-20">
+            <div class="bg-surface-light rounded-3xl p-10 md:p-16 text-center max-w-[960px] mx-auto border border-slate-200 shadow-xl relative overflow-hidden">
+              <div class="absolute top-0 left-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+              <div class="absolute bottom-0 right-0 w-40 h-40 bg-primary/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3"></div>
+              <div class="relative z-10 flex flex-col items-center gap-6">
+                <div class="size-16 bg-primary/20 rounded-full flex items-center justify-center text-primary mb-2"><span class="material-symbols-outlined text-4xl">chat</span></div>
+                <h2 class="text-text-primary-light text-3xl md:text-4xl font-black leading-tight tracking-tight max-w-2xl">¿Todavía tienes dudas?</h2>
+                <p class="text-text-secondary-light text-lg font-normal max-w-xl">Nuestro equipo de soporte está listo para ayudarte con cualquier pregunta técnica o comercial que tengas sobre Recibox.</p>
+                <div class="mt-4">
+                  <a class="flex min-w-[160px] items-center justify-center overflow-hidden rounded-lg h-12 px-8 bg-primary hover:bg-[#5bdb0b] text-[#141811] text-base font-bold leading-normal tracking-wide shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1" href="mailto:soporte@recibox.com.ar">
+                    <span class="mr-2">Contáctanos</span><span class="material-symbols-outlined text-sm">arrow_forward</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="flex flex-col gap-8 px-5 py-12 text-center bg-white border-t border-slate-100">
+        <div class="flex flex-wrap items-center justify-center gap-8 md:gap-12">
+          <a class="text-text-secondary-light hover:text-primary transition-colors text-base font-medium" href="/terminos-y-condiciones">Términos y Condiciones</a>
+          <a class="text-text-secondary-light hover:text-primary transition-colors text-base font-medium" href="/politicas-de-privacidad">Política de Privacidad</a>
+          <a class="text-text-secondary-light hover:text-primary transition-colors text-base font-medium" href="/preguntas-frecuentes">Centro de Ayuda</a>
+          <a class="text-text-secondary-light hover:text-primary transition-colors text-base font-medium" href="/home">Inicio</a>
+        </div>
+        <div class="flex flex-col items-center gap-2">
+          <div class="flex items-center gap-2 mb-2 opacity-60"><span class="material-symbols-outlined text-lg">inventory_2</span><span class="text-text-primary-light font-bold text-sm">Recibox</span></div>
+          <p class="text-text-secondary-light text-sm font-normal">© 2026 Recibox Inc. Todos los derechos reservados.</p>
+        </div>
+      </footer>
+    </div>
+  <script defer="" src="/assets/backoffice-link.js"></script>
+</body>
+</html>

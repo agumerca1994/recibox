@@ -6,3 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "${WEBSITE_PORT:-8090}:80"
+    networks:
+      - recibox-local
+
+networks:
+  recibox-local:
+    driver: bridge

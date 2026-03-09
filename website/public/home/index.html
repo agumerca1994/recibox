@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Recibox - Gestión Documental Inteligente</title>
+<link href="/assets/branding/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="/apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<style type="text/tailwindcss">
+        @layer base {
+            :root {
+                --primary: #9CCB3B;
+                --secondary: #2C3539;
+            }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .pulse-soft {
+            animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.05); }
+        }
+    </style>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#9CCB3B",
+              secondary: "#2C3539",
+              "background-light": "#F9FAFB",
+              "background-dark": "#111827",
+              "card-light": "#FFFFFF",
+              "card-dark": "#1F2937",
+              "text-light": "#374151",
+              "text-dark": "#D1D5DB",
+            },
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              xl: "1rem",
+              "2xl": "1.5rem",
+            }
+          },
+        },
+      };
+    </script>
+</head>
+<body class="font-sans bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark antialiased transition-colors duration-300">
+<nav class="fixed w-full z-50 bg-white/95 backdrop-blur-sm border-b border-gray-200">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex justify-between h-20 items-center">
+<a class="flex items-center gap-2" href="/home"><img alt="Logo Recibox" class="h-10 w-auto" src="/assets/branding/logo_recibox.svg"/></a>
+<div class="hidden md:flex space-x-6 items-center">
+<details class="relative">
+<summary class="list-none cursor-pointer text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1">
+<span>RECIBOX</span>
+<span class="material-symbols-outlined text-base">expand_more</span>
+</summary>
+<div class="absolute right-0 mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl p-3 z-50">
+<a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/planes">Planes</a>
+<a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/home#funcionalidades">Funcionalidades</a>
+<details class="px-3 py-2 rounded-md text-sm hover:bg-gray-50">
+<summary class="list-none cursor-pointer flex items-center justify-between">
+<span>Nosotros</span>
+<span class="material-symbols-outlined text-base">chevron_right</span>
+</summary>
+<div class="mt-2 pl-2 border-l border-gray-200">
+<a class="block py-1.5 text-sm hover:text-primary" href="/terminos-y-condiciones">Terminos y condiciones</a>
+<a class="block py-1.5 text-sm hover:text-primary" href="/politicas-de-privacidad">Politicas de privacidad</a>
+</div>
+</details>
+<a class="block px-3 py-2 rounded-md text-sm hover:bg-gray-50" href="/preguntas-frecuentes">Preguntas Frecuentes</a>
+</div>
+</details>
+<a class="text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="/home#app-movil">App Movil</a>
+<a class="bg-primary text-white hover:bg-opacity-90 px-5 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg hover:shadow-xl" data-backoffice-link="" href="https://backoffice.recibox.com.ar/" rel="noopener noreferrer" target="_blank">
+                        BACKOFFICE
+                    </a>
+</div>
+</div>
+</div>
+</nav>
+<header class="pt-32 pb-16 lg:pt-48 lg:pb-24 overflow-hidden">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+<div class="lg:grid lg:grid-cols-12 lg:gap-16 items-center">
+<div class="lg:col-span-6 text-center lg:text-left">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary mb-6 border border-primary/20">
+<span class="material-symbols-outlined text-sm mr-1">verified_user</span> Entorno de Trabajo Real
+                    </span>
+<h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-gray-900 dark:text-white mb-6">
+                        Potencia tu productividad con <span class="text-primary">Recibox</span>
+                    </h1>
+<p class="text-lg sm:text-xl text-gray-600 dark:text-gray-400 mb-8 leading-relaxed">
+                        Gestiona tus documentos con una interfaz profesional de alto rendimiento. Integración directa con Google Drive para un control absoluto. Diseñado tanto para <strong>Empresas</strong> como para <strong>Uso Personal</strong>.
+                    </p>
+<div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+<button class="bg-primary text-white px-8 py-3.5 rounded-xl font-semibold text-lg shadow-lg hover:bg-opacity-90 hover:shadow-primary/30 transition-all flex items-center justify-center gap-2">
+                            Prueba Gratis <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+<button class="bg-white dark:bg-card-dark text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 px-8 py-3.5 rounded-xl font-semibold text-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-primary">play_circle</span> Ver Demo Real
+                        </button>
+</div>
+</div>
+<div class="lg:col-span-6 mt-16 lg:mt-0 relative">
+<div class="relative rounded-2xl bg-white dark:bg-card-dark shadow-2xl border border-gray-200 dark:border-gray-700 p-1 overflow-hidden transition-all duration-500">
+<div class="bg-gray-100 dark:bg-gray-900 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800">
+<div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-end">
+<div class="flex items-center gap-2">
+<div class="hidden sm:flex items-center gap-2 text-[11px] px-3 py-1 rounded-full bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+<span class="material-symbols-outlined text-sm">cloud_done</span>
+<span>Google Drive conectado</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm text-gray-500 dark:text-gray-300">person</span>
+</div>
+</div>
+</div>
+<div class="p-6 bg-gray-50 dark:bg-gray-900 grid grid-cols-2 gap-4">
+<div class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+<div class="flex items-center justify-between mb-4">
+<span class="text-sm font-semibold text-gray-500 dark:text-gray-400">Archivos Pendientes</span>
+<span class="material-symbols-outlined text-yellow-500">pending_actions</span>
+</div>
+<div class="text-3xl font-bold text-gray-900 dark:text-white">12</div>
+<div class="mt-4 space-y-2">
+<div class="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg text-[10px] text-yellow-800 dark:text-yellow-200">
+<span class="material-symbols-outlined text-sm">description</span>
+<span>Recibo de sueldo</span>
+</div>
+<div class="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg text-[10px] text-yellow-800 dark:text-yellow-200">
+<span class="material-symbols-outlined text-sm">description</span>
+<span>Vacaciones 2026</span>
+</div>
+<div class="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-900/10 rounded-lg text-[10px] text-yellow-800 dark:text-yellow-200">
+<span class="material-symbols-outlined text-sm">description</span>
+<span>Acuerdo de confidencialidad</span>
+</div>
+</div>
+</div>
+<div class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+<div class="flex items-center justify-between mb-4">
+<span class="text-sm font-semibold text-gray-500 dark:text-gray-400">Procesados</span>
+<span class="material-symbols-outlined text-green-500">check_circle</span>
+</div>
+<div class="text-3xl font-bold text-gray-900 dark:text-white">458</div>
+<div class="mt-4">
+<div class="w-full bg-gray-100 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[85%]"></div>
+</div>
+<div class="mt-2 text-[10px] text-gray-500">85% del cupo mensual utilizado</div>
+</div>
+</div>
+<div class="col-span-2 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 mt-2">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-sm font-bold text-gray-800 dark:text-white">Historico de procesamientos</h3>
+<button class="text-xs bg-primary/10 text-primary px-3 py-1 rounded-md font-medium">Ver todos</button>
+</div>
+<div class="space-y-3">
+<div class="flex items-center justify-between py-2 border-b border-gray-50 dark:border-gray-700/50">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-blue-500 text-sm">picture_as_pdf</span>
+</div>
+<div>
+<div class="text-xs font-medium text-gray-800 dark:text-white">Liquidacion Enero 2025</div>
+<div class="text-[10px] text-gray-500">Procesado en Drive: /Personal/Liquidaciones</div>
+</div>
+</div>
+<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">Completado</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-gray-50 dark:border-gray-700/50">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-red-500 text-sm">description</span>
+</div>
+<div>
+<div class="text-xs font-medium text-gray-800 dark:text-white">Liquidacion Febrero 2026</div>
+<div class="text-[10px] text-gray-500">Procesado en Drive: /Personal/Liquidaciones</div>
+</div>
+</div>
+<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">Completado</span>
+</div>
+<div class="flex items-center justify-between py-2">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-emerald-500 text-sm">task</span>
+</div>
+<div>
+<div class="text-xs font-medium text-gray-800 dark:text-white">Liquidacion Marzo 2026</div>
+<div class="text-[10px] text-gray-500">Procesado en Drive: /Personal/Liquidaciones</div>
+</div>
+</div>
+<span class="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">Completado</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</header>
+<section class="py-20 bg-white dark:bg-background-dark relative" id="funcionalidades">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center max-w-3xl mx-auto mb-16">
+<h2 class="text-base font-semibold text-primary tracking-wide uppercase">Capacidades Principales</h2>
+<p class="mt-2 text-3xl font-extrabold text-gray-900 dark:text-white sm:text-4xl">
+                    Diseñado para la Eficiencia Real
+                </p>
+<p class="mt-4 text-xl text-gray-500 dark:text-gray-400">
+                    Combinamos diseño moderno con seguridad robusta para agilizar tu flujo administrativo, tanto para <strong>Empresas</strong> como para <strong>Uso Personal</strong>.
+                </p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
+<div class="relative p-8 bg-background-light dark:bg-card-dark rounded-2xl border border-gray-100 dark:border-gray-700 hover:shadow-xl hover:border-primary/30 transition-all duration-300 group">
+<div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-colors"></div>
+<div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-primary text-white mb-6 shadow-lg shadow-primary/30">
+<span class="material-symbols-outlined text-3xl">bolt</span>
+</div>
+<h3 class="text-xl font-bold text-gray-900 dark:text-white mb-3">Gestión Dinámica</h3>
+<p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+                        Organiza, filtra y accede a tus documentos administrativos al instante. Nuestra interfaz profesional se adapta a tu flujo de trabajo.
+                    </p>
+</div>
+<div class="relative p-8 bg-background-light dark:bg-card-dark rounded-2xl border border-gray-100 dark:border-gray-700 hover:shadow-xl hover:border-primary/30 transition-all duration-300 group">
+<div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-colors"></div>
+<div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-secondary text-white mb-6 shadow-lg shadow-secondary/30">
+<span class="material-symbols-outlined text-3xl">shield_person</span>
+</div>
+<h3 class="text-xl font-bold text-gray-900 dark:text-white mb-3">100% Bajo tu Control</h3>
+<p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+                        Tus datos nunca abandonan tu nube. Recibox se conecta a Google Drive, garantizando seguridad y propiedad de nivel corporativo.
+                    </p>
+</div>
+<div class="relative p-8 bg-background-light dark:bg-card-dark rounded-2xl border border-gray-100 dark:border-gray-700 hover:shadow-xl hover:border-primary/30 transition-all duration-300 group">
+<div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition-colors"></div>
+<div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-purple-600 text-white mb-6 shadow-lg shadow-purple-600/30">
+<span class="material-symbols-outlined text-3xl">auto_graph</span>
+</div>
+<h3 class="text-xl font-bold text-gray-900 dark:text-white mb-3">Tus documentos siempre contigo</h3>
+<p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+                        Accede, revisa y firma desde cualquier lugar. Nuestra App móvil está optimizada para la productividad móvil de tus colaboradores.
+                    </p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-24 bg-gray-50 dark:bg-[#0f141f] overflow-hidden" id="app-movil">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="lg:grid lg:grid-cols-2 lg:gap-24 items-center">
+<div class="mb-12 lg:mb-0">
+<h2 class="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white mb-6">
+                        Recibox para Colaboradores:<br/>
+<span class="text-primary">Tus documentos siempre contigo.</span>
+</h2>
+<p class="text-lg text-gray-600 dark:text-gray-300 mb-8">
+                        Mantén a tu equipo conectado y productivo en cualquier lugar. La app móvil de Recibox empodera a los colaboradores para gestionar documentos críticos sobre la marcha.
+                    </p>
+<div class="space-y-6">
+<div class="flex">
+<div class="flex-shrink-0">
+<div class="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 text-primary">
+<span class="material-symbols-outlined">visibility</span>
+</div>
+</div>
+<div class="ml-4">
+<h3 class="text-lg font-medium text-gray-900 dark:text-white">Visualización Instantánea</h3>
+<p class="mt-2 text-base text-gray-500 dark:text-gray-400">
+                                    Accede a contratos, facturas e informes instantáneamente desde cualquier dispositivo móvil con una renderización impecable.
+                                </p>
+</div>
+</div>
+<div class="flex">
+<div class="flex-shrink-0">
+<div class="flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 text-primary">
+<span class="material-symbols-outlined">edit_square</span>
+</div>
+</div>
+<div class="ml-4">
+<h3 class="text-lg font-medium text-gray-900 dark:text-white">Firma Digital</h3>
+<p class="mt-2 text-base text-gray-500 dark:text-gray-400">
+                                    Aprueba y firma documentos legalmente con unos pocos toques. Sin imprimir ni esperar.
+                                </p>
+</div>
+</div>
+</div>
+<div class="mt-10 mb-8">
+<div class="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-white dark:border-gray-800 group cursor-pointer w-full max-w-sm">
+<div aria-label="Imagen principal pendiente" class="w-full h-64 bg-white/80 dark:bg-gray-900/80"></div>
+</div>
+</div>
+</div>
+<div class="relative mx-auto lg:mx-0 w-full max-w-[320px] lg:max-w-md mt-12 lg:mt-0">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-gradient-to-tr from-primary/20 to-blue-500/20 rounded-full blur-3xl -z-10"></div>
+<div class="relative bg-gray-900 rounded-[3rem] p-3 shadow-2xl border-4 border-gray-800">
+<div class="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/4 h-6 bg-gray-900 rounded-b-2xl z-20"></div>
+<div class="bg-white dark:bg-gray-800 rounded-[2.5rem] overflow-hidden h-[640px] w-full flex flex-col relative">
+<div class="bg-primary pt-12 pb-6 px-6 text-white rounded-b-[2rem] shadow-lg relative z-10">
+<div class="flex justify-between items-center mb-6">
+<span class="material-symbols-outlined">menu</span>
+<span class="font-bold text-lg">Recibox Mobile</span>
+<span class="material-symbols-outlined">notifications</span>
+</div>
+<div class="bg-white/10 backdrop-blur-md p-3 rounded-xl flex items-center gap-3 border border-white/20">
+<span class="material-symbols-outlined text-white/70">search</span>
+<span class="text-white/70 text-sm">Buscar en Mis Documentos...</span>
+</div>
+</div>
+<div class="flex-1 p-5 bg-gray-50 dark:bg-gray-900 overflow-y-auto">
+<div class="flex justify-between items-center mb-5">
+<h4 class="font-bold text-gray-900 dark:text-white">Mis Documentos</h4>
+<span class="text-primary text-xs font-semibold uppercase tracking-wider">Filtrar</span>
+</div>
+<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm mb-4 border border-gray-100 dark:border-gray-700">
+<div class="flex items-start justify-between mb-3">
+<div class="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-500">
+<span class="material-symbols-outlined text-2xl">picture_as_pdf</span>
+</div>
+<span class="bg-red-100 text-red-700 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-tighter">Urgente</span>
+</div>
+<h5 class="font-bold text-sm text-gray-900 dark:text-white">Contrato_Laboral_Nuevo.pdf</h5>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-xs text-gray-400">schedule</span>
+<p class="text-[10px] text-gray-400">Recibido hoy a las 09:45 AM</p>
+</div>
+<button class="mt-4 w-full bg-primary text-white py-3 rounded-xl font-bold text-xs shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 pulse-soft">
+<span class="material-symbols-outlined text-sm">signature</span> Firma Digital
+            </button>
+</div>
+<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm mb-4 border border-gray-100 dark:border-gray-700">
+<div class="flex items-start justify-between mb-3">
+<div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-xl text-green-500">
+<span class="material-symbols-outlined text-2xl">description</span>
+</div>
+<span class="bg-green-100 text-green-700 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-tighter">Procesado</span>
+</div>
+<h5 class="font-bold text-sm text-gray-900 dark:text-white">Recibo_Nomina_Octubre.pdf</h5>
+<p class="text-[10px] text-gray-400 mt-1">Almacenado en: /Nominas/2023</p>
+</div>
+<div class="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm mb-4 border border-gray-100 dark:border-gray-700 opacity-60">
+<div class="flex items-start justify-between mb-3">
+<div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-blue-500">
+<span class="material-symbols-outlined text-2xl">table_view</span>
+</div>
+</div>
+<h5 class="font-bold text-sm text-gray-900 dark:text-white">Gastos_Empresa_Q3.xlsx</h5>
+<p class="text-[10px] text-gray-400 mt-1">Archivo de solo lectura</p>
+</div>
+</div>
+<div class="bg-white dark:bg-gray-800 px-8 py-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
+<span class="material-symbols-outlined text-primary scale-125">home</span>
+<span class="material-symbols-outlined text-gray-400">folder_shared</span>
+<div class="bg-primary p-3 rounded-full -mt-12 border-4 border-white dark:border-gray-900 shadow-xl text-white">
+<span class="material-symbols-outlined">add</span>
+</div>
+<span class="material-symbols-outlined text-gray-400">group</span>
+<span class="material-symbols-outlined text-gray-400">settings</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-white dark:bg-background-dark py-16 border-t border-gray-100 dark:border-gray-800" id="planes">
+<div class="max-w-4xl mx-auto px-4 text-center">
+<h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">Potencia tu productividad hoy mismo</h2>
+<p class="text-gray-600 dark:text-gray-400 mb-8">Únete a miles de profesionales que confían en Recibox para la gestión real de su documentación.</p>
+<form class="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
+<input class="w-full px-4 py-3 rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800 focus:ring-primary focus:border-primary" placeholder="Tu email corporativo" type="email"/>
+<button class="bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-opacity-90 whitespace-nowrap shadow-lg transition-colors" type="button">Empezar Gratis</button>
+</form>
+</div>
+</section>
+<footer class="bg-gray-50 dark:bg-[#0b1019] pt-12 pb-8 border-t border-gray-200 dark:border-gray-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-6">
+<div class="flex items-center gap-2">
+<img alt="Logo Recibox" class="h-8 grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all" src="/assets/branding/logo_recibox.svg"/>
+<span class="text-gray-500 dark:text-gray-400 text-sm">© 2024 Recibox. Gestionado en España.</span>
+</div>
+<div class="flex gap-6">
+<a class="text-gray-400 hover:text-primary dark:hover:text-primary transition-colors text-sm" href="/politicas-de-privacidad">Privacidad</a>
+<a class="text-gray-400 hover:text-primary dark:hover:text-primary transition-colors text-sm" href="/terminos-y-condiciones">Términos</a>
+<a class="text-gray-400 hover:text-primary dark:hover:text-primary transition-colors text-sm" href="mailto:soporte@recibox.com.ar">Soporte</a>
+</div>
+</div>
+</footer>
+
+<script defer="" src="/assets/backoffice-link.js"></script>
+</body></html>

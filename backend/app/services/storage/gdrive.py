@@ -28,8 +28,13 @@ def _get_service(*, tenant_id: str | None = None):
             creds = None
 
     if not creds:
+        service_account_path = (settings.google_application_credentials or "").strip()
+        if not service_account_path:
+            raise RuntimeError(
+                "No OAuth token configured for tenant and GOOGLE_APPLICATION_CREDENTIALS is empty"
+            )
         creds = Credentials.from_service_account_file(
-            settings.google_application_credentials,
+            service_account_path,
             scopes=_scopes(),
         )
         if settings.google_subject:

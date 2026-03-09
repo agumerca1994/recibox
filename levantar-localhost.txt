@@ -1,0 +1,28 @@
+subir todo --
+
+
+cd /mnt/c/Users/u634958/Documents/proyectos/recibox
+export DC="docker-compose"
+
+# confirmar que 6379 quedó libre (si sigue ocupado, repetir stop)
+sudo service redis-server stop
+sudo lsof -i :6379
+
+# validar y levantar stack localhost
+$DC -f docker-compose.backend.localhost.yml -f docker-compose.frontend.localhost.yml -f docker-compose.website.localhost.yml config --quiet
+$DC -f docker-compose.backend.localhost.yml -f docker-compose.frontend.localhost.yml -f docker-compose.website.localhost.yml up -d --build
+
+# verificar
+$DC -f docker-compose.backend.localhost.yml -f docker-compose.frontend.localhost.yml -f docker-compose.website.localhost.yml ps
+curl http://127.0.0.1:8000/health
+
+
+bajar todo - 
+
+cd /mnt/c/Users/u634958/Documents/proyectos/recibox
+$DC -f docker-compose.backend.localhost.yml -f docker-compose.frontend.localhost.yml -f docker-compose.website.localhost.yml down
+
+rebuild -- reconstruir todo
+
+cd /mnt/c/Users/u634958/Documents/proyectos/recibox
+$DC -f docker-compose.backend.localhost.yml -f docker-compose.frontend.localhost.yml -f docker-compose.website.localhost.yml up -d --build
