@@ -401,6 +401,7 @@ function BackofficeApp() {
   const [, setAutomationRulesSaving] = useState(false)
   const [automationRulesSuccess, setAutomationRulesSuccess] = useState('')
   const [showProfilePopover, setShowProfilePopover] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [authEmail] = useState<string>(() => {
     if (typeof window === 'undefined') {
       return ''
@@ -1216,6 +1217,17 @@ function BackofficeApp() {
           {environmentChip && <span className={`env-chip env-chip-${environmentChip.tone}`}>{environmentChip.label.toUpperCase()}</span>}
         </div>
         <div className="topbar-right">
+          <button
+            type="button"
+            className="topbar-menu-btn"
+            aria-label="Abrir menu"
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              menu
+            </span>
+          </button>
           <button type="button" className="topbar-icon-btn" aria-label="Notificaciones">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 1 0-14 0v5l-2 2v1h18v-1l-2-2Z" />
@@ -1261,6 +1273,114 @@ function BackofficeApp() {
           </div>
         </div>
       </header>
+
+      <div
+        className={`mobile-menu-overlay ${mobileMenuOpen ? 'open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu principal"
+        onClick={() => setMobileMenuOpen(false)}
+      >
+        <div className="mobile-menu-panel" onClick={(event) => event.stopPropagation()}>
+          <div className="mobile-menu-header">
+            <div className="brand-wrap">
+              <img className="brand-icon" src="/assets/branding/logo512.svg" alt="RECIBOX" />
+              <span className="brand-text">RECIBOX</span>
+            </div>
+            <button type="button" className="mobile-menu-close" aria-label="Cerrar menu" onClick={() => setMobileMenuOpen(false)}>
+              <span className="material-symbols-outlined" aria-hidden="true">
+                close
+              </span>
+            </button>
+          </div>
+          <nav className="mobile-menu-nav">
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'cuenta' ? 'active' : ''}`}
+              onClick={() => {
+                handleSectionChange('cuenta')
+                setMobileMenuOpen(false)
+              }}
+            >
+              <span className="menu-item-inner">
+                <span className="menu-glyph" aria-hidden="true">
+                  <span className="material-symbols-outlined">grid_view</span>
+                </span>
+                <span>Cuentas</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'nomina' ? 'active' : ''}`}
+              onClick={() => {
+                handleSectionChange('nomina')
+                setMobileMenuOpen(false)
+              }}
+            >
+              <span className="menu-item-inner">
+                <span className="menu-glyph" aria-hidden="true">
+                  <span className="material-symbols-outlined">group</span>
+                </span>
+                <span>Colaboradores</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'procesar' ? 'active' : ''}`}
+              onClick={() => {
+                handleSectionChange('procesar')
+                setMobileMenuOpen(false)
+              }}
+            >
+              <span className="menu-item-inner">
+                <span className="menu-glyph" aria-hidden="true">
+                  <span className="material-symbols-outlined">sync</span>
+                </span>
+                <span>Procesar</span>
+              </span>
+            </button>
+            <button type="button" className="menu-item menu-item-disabled">
+              <span className="menu-item-inner">
+                <span className="menu-glyph" aria-hidden="true">
+                  <span className="material-symbols-outlined">assessment</span>
+                </span>
+                <span>Reportes</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'configuracion' ? 'active' : ''}`}
+              onClick={() => {
+                handleSectionChange('configuracion')
+                setMobileMenuOpen(false)
+              }}
+            >
+              <span className="menu-item-inner">
+                <span className="menu-glyph" aria-hidden="true">
+                  <span className="material-symbols-outlined">settings</span>
+                </span>
+                <span>Configuracion</span>
+              </span>
+            </button>
+          </nav>
+          <div className="mobile-menu-footer">
+            <div className="mobile-user">
+              <div className="mobile-user-avatar">
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  person
+                </span>
+              </div>
+              <div className="mobile-user-text">
+                <p>{topbarUserName}</p>
+                <span>Administrador</span>
+              </div>
+            </div>
+            <button type="button" className="profile-logout-btn" onClick={() => void logoutCurrentSession()}>
+              Cerrar sesion
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="body-layout">
         <aside className="sidebar">
