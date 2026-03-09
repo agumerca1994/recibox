@@ -28,6 +28,31 @@
   margin-bottom: 8px;
 }
 
+.auth-gate-chip {
+  border: 1px solid #d97706;
+  color: #b45309;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.auth-gate-chip-localhost {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.auth-gate-chip-test {
+  border-color: #d97706;
+  color: #b45309;
+}
+
+.auth-gate-chip-beta {
+  border-color: #7c3aed;
+  color: #6d28d9;
+}
+
 .auth-gate-card p {
   margin: 0 0 16px;
   color: #475569;
@@ -67,6 +92,13 @@
 
 .auth-gate-btn-register {
   background: #2563eb;
+}
+
+.auth-gate-btn-google-disabled {
+  margin-top: 14px;
+  width: 100%;
+  background: #9ca3af;
+  color: #f9fafb;
 }
 
 .auth-gate-btn:disabled {
