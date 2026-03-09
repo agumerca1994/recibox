@@ -1349,7 +1349,7 @@ function BackofficeApp() {
                     <article className="account-row">
                       <div className="account-row-main">
                         <div className="account-avatar">
-                          <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
+                          <img className="drive-mini" src="/assets/branding/google_drive.svg" alt="Google Drive" />
                         </div>
                         <div className="account-meta">
                           <h3>{connectedEmail}</h3>
@@ -1367,7 +1367,7 @@ function BackofficeApp() {
                     </article>
                     <div className="account-row-overlay account-row-overlay-soft" aria-live="polite">
                       <div className="account-row-overlay-avatar">
-                        <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="" />
+                        <img className="drive-mini" src="/assets/branding/google_drive.svg" alt="" />
                         <span className="account-row-overlay-spinner" aria-hidden="true" />
                       </div>
                       <p>Verificando conexion de la cuenta...</p>
@@ -1386,7 +1386,7 @@ function BackofficeApp() {
                     <article className="account-row" aria-label="Cuenta conectada de Google Drive">
                       <div className="account-row-main">
                         <div className="account-avatar">
-                          <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
+                          <img className="drive-mini" src="/assets/branding/google_drive.svg" alt="Google Drive" />
                         </div>
                         <div className="account-meta">
                           <h3>{connectedEmail}</h3>
@@ -1422,7 +1422,7 @@ function BackofficeApp() {
                     {actionLoading && (
                       <div className="account-row-overlay" aria-live="polite">
                         <div className="account-row-overlay-avatar">
-                          <img className="drive-mini" src="/assets/branding/google-drive-logo.png" alt="" />
+                          <img className="drive-mini" src="/assets/branding/google_drive.svg" alt="" />
                           <span className="account-row-overlay-spinner" aria-hidden="true" />
                         </div>
                         <p>Actualizando conexion...</p>
@@ -1452,14 +1452,12 @@ function BackofficeApp() {
             ) : (
               <section className="main-card" aria-label="Conectar Google Drive">
                 <h1>Para iniciar</h1>
-                <h2 className="connect-title">Conectá con tu cuenta de Google Drive</h2>
+                <h2 className="connect-title">Conectá tu cuenta de Google Drive</h2>
 
                 <div className="logos-row">
                   <img className="recibox-large" src="/assets/branding/logo512.svg" alt="Recibox" />
                   <span className="arrow">→</span>
-                  <div className="drive-wrap">
-                    <img className="drive-large" src="/assets/branding/google-drive-logo.png" alt="Google Drive" />
-                  </div>
+                  <img className="drive-large" src="/assets/branding/google-drive.svg" alt="Google Drive" />
                 </div>
 
                 <button type="button" className="connect-btn" onClick={connectGoogleDrive}>
@@ -1988,7 +1986,7 @@ function BackofficeApp() {
       )}
 
       {showTutorialModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Tutorial de carpetas Drive">
+        <div className="modal-overlay tutorial-modal-overlay" role="dialog" aria-modal="true" aria-label="Tutorial de carpetas Drive">
           <div className="modal-card tutorial-structure-modal">
             <div className="tutorial-structure-header">
               <div className="tutorial-structure-brand">
@@ -1998,8 +1996,8 @@ function BackofficeApp() {
                   </span>
                 </div>
                 <div>
-                  <p className="tutorial-structure-brand-title">Tutorial de carpetas</p>
-                  <p className="tutorial-structure-brand-subtitle">Google Drive + RECIBOX</p>
+                  <p className="tutorial-structure-brand-title">Recibox</p>
+                  <p className="tutorial-structure-brand-subtitle">Estructura de archivos</p>
                 </div>
               </div>
               <button type="button" className="tutorial-close-btn" onClick={() => setShowTutorialModal(false)} aria-label="Cerrar tutorial">
@@ -2008,14 +2006,14 @@ function BackofficeApp() {
             </div>
 
             <div className="tutorial-structure-body">
-              <h3>Como organiza RECIBOX tus archivos</h3>
+              <h3>Como organiza RECIBOX las carpetas</h3>
               <p className="tutorial-structure-subtitle">
-                RECIBOX trabaja sobre una carpeta principal y una subcarpeta de entrada para procesar documentos.
+                Estructura recomendada para mantener el procesamiento ordenado en Google Drive.
               </p>
 
               <div className="tutorial-structure-grid">
                 <section className="tutorial-tree-card" aria-label="Estructura de carpetas">
-                  <div className="tutorial-tree-root">
+                  <div className="tutorial-tree-root tutorial-tree-item-main">
                     <div className="tutorial-tree-root-icon">
                       <span className="material-symbols-outlined" aria-hidden="true">
                         folder
@@ -2023,33 +2021,78 @@ function BackofficeApp() {
                     </div>
                     <div>
                       <p className="tutorial-tree-kicker">Carpeta principal</p>
-                      <p className="tutorial-tree-title">RECIBOX (por defecto)</p>
+                      <p className="tutorial-tree-title">RECIBOX (carpeta principal)</p>
                     </div>
                   </div>
 
-                  <div className="tutorial-tree-node">
-                    <span className="tutorial-node-dot" aria-hidden="true" />
-                    <div>
+                  <div className="tutorial-tree-node tutorial-tree-node-level-1">
+                    <span className="tutorial-node-icon" aria-hidden="true">
+                      <span className="material-symbols-outlined">folder_data</span>
+                    </span>
+                    <div className="tutorial-tree-copy">
                       <p className="tutorial-node-title">#0 INPUT</p>
-                      <p className="tutorial-node-text">Aqui se suben los archivos para procesar.</p>
+                      <p className="tutorial-node-text">Carpeta de entrada para archivos a procesar</p>
                     </div>
                   </div>
 
-                  <p className="tutorial-tree-subnode">Luego RECIBOX clasifica y organiza el contenido en las carpetas correspondientes.</p>
+                  <div className="tutorial-tree-node tutorial-tree-node-level-1">
+                    <span className="tutorial-node-icon" aria-hidden="true">
+                      <span className="material-symbols-outlined">groups</span>
+                    </span>
+                    <div className="tutorial-tree-copy">
+                      <p className="tutorial-node-title">Carpeta de colaborador</p>
+                      <p className="tutorial-node-text">Una carpeta por cada colaborador</p>
+                    </div>
+                  </div>
+
+                  <div className="tutorial-tree-node tutorial-tree-node-level-2">
+                    <span className="tutorial-node-icon tutorial-node-icon-min" aria-hidden="true">
+                      <span className="material-symbols-outlined">calendar_month</span>
+                    </span>
+                    <div className="tutorial-tree-copy">
+                      <p className="tutorial-tree-subnode">Año</p>
+                    </div>
+                  </div>
+
+                  <div className="tutorial-tree-node tutorial-tree-node-level-3">
+                    <span className="tutorial-node-icon tutorial-node-icon-min" aria-hidden="true">
+                      <span className="material-symbols-outlined">description</span>
+                    </span>
+                    <div className="tutorial-tree-copy">
+                      <p className="tutorial-tree-subnode tutorial-tree-subnode-italic">
+                        Documento del colaborador (Ej. Recibo de sueldo)
+                      </p>
+                    </div>
+                  </div>
                 </section>
 
                 <div className="tutorial-info-col">
                   <section className="tutorial-info-card tutorial-info-card-primary" aria-label="Regla principal">
-                    <h4>Regla principal</h4>
-                    <p>RECIBOX necesita una carpeta principal llamada RECIBOX y una subcarpeta #0 INPUT para funcionar correctamente.</p>
+                    <h4>
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        info
+                      </span>
+                      Funcionamiento automatico
+                    </h4>
+                    <p>
+                      RECIBOX organiza todo en una carpeta principal (por defecto <strong>RECIBOX</strong>) y requiere la
+                      subcarpeta <strong>#0 INPUT</strong> para recibir archivos.
+                    </p>
+                    <p>
+                      Si eliges una carpeta existente, se renombrara a <strong>RECIBOX</strong> y si no tiene{' '}
+                      <strong>#0 INPUT</strong>, se creara automaticamente.
+                    </p>
                   </section>
 
                   <section className="tutorial-info-card" aria-label="Pregunta frecuente">
-                    <h4>¿Si ya tengo una carpeta con informacion en mi Drive, puedo elegirla?</h4>
-                    <p>
-                      Si. Al elegir una carpeta existente, RECIBOX la renombrara a RECIBOX y, si no tiene la subcarpeta
-                      #0 INPUT, se creara automaticamente.
-                    </p>
+                    <h4>
+                      <span className="material-symbols-outlined" aria-hidden="true">
+                        auto_fix_high
+                      </span>
+                      ¿Como funciona el flujo?
+                    </h4>
+                    <p>Sube archivos en <strong>#0 INPUT</strong> y ejecuta el procesamiento desde Backoffice.</p>
+                    <p>RECIBOX los clasifica por colaborador y luego por año para mantener trazabilidad documental.</p>
                   </section>
                 </div>
               </div>
