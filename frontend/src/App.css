@@ -1093,7 +1093,14 @@ body {
   cursor: pointer;
 }
 
-.process-grid {
+.process-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.process-summary {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
@@ -1164,6 +1171,12 @@ body {
   min-height: 240px;
 }
 
+.process-stack .pending-card,
+.process-stack .jobs-card {
+  grid-column: auto;
+  grid-row: auto;
+}
+
 .nomina-grid .pending-card,
 .nomina-grid .jobs-card {
   grid-column: auto;
@@ -1209,7 +1222,7 @@ body {
 }
 
 .files-table td:first-child {
-  width: calc(100% - 220px);
+  width: calc(100% - 150px);
 }
 
 .pending-table th,
@@ -1255,9 +1268,15 @@ body {
 
 .files-action-col,
 .doc-actions {
-  width: 110px;
-  text-align: left;
+  width: 150px;
+  text-align: right;
   white-space: nowrap;
+}
+
+.doc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .doc-action-text-btn,
@@ -1307,18 +1326,22 @@ body {
 
 .collaborator-search-icon {
   position: absolute;
-  left: 10px;
-  font-size: 16px;
+  left: 12px;
+  font-size: 18px;
   line-height: 1;
   color: #7b8ca7;
   pointer-events: none;
 }
 
 .collaborator-search {
-  padding-left: 32px;
+  padding-left: 48px;
   border-radius: 8px;
   border-color: var(--rb-border);
   background: #f9fbfe;
+}
+
+.collaborator-search-wrap .collaborator-search {
+  padding-left: 56px !important;
 }
 
 .collaborator-search:focus {
@@ -2021,7 +2044,7 @@ body {
 }
 
 @media (max-width: 1024px) {
-  .process-grid {
+  .process-summary {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
 
@@ -2166,7 +2189,7 @@ body {
     flex-direction: column;
   }
 
-  .process-grid,
+  .process-summary,
   .nomina-grid,
   .settings-cards-grid,
   .settings-inline-row,
