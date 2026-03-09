@@ -55,8 +55,8 @@ services:
       - "8000"
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
+      - ${SECRETS_DIR:-/opt/recibox-credentials/prod}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials/prod}:/run/oauth-secrets:ro
     networks:
       - prod-internal
       - easypanel
@@ -97,8 +97,8 @@ services:
       RQ_JOB_TIMEOUT_SECONDS: ${RQ_JOB_TIMEOUT_SECONDS:-900}
     volumes:
       - recibox_prod_tmp_data:/app/backend/tmp
-      - ${SECRETS_DIR:-/opt/recibox-credentials}:/run/secrets:ro
-      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials}:/run/oauth-secrets:ro
+      - ${SECRETS_DIR:-/opt/recibox-credentials/prod}:/run/secrets:ro
+      - ${OAUTH_SECRETS_DIR:-/opt/recibox-credentials/prod}:/run/oauth-secrets:ro
     networks:
       - prod-internal
       - easypanel
