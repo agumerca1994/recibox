@@ -28,6 +28,7 @@ from app.services.tenants.drive_config import (
     set_tenant_disabled,
 )
 from app.services.tenants.user_tenants import resolve_or_create_user_tenant
+from app.services.tenants.user_profiles import upsert_user_profile
 from app.services.tenants.processing_preferences import (
     clear_tenant_processing_preferences,
     load_tenant_processing_preferences,
@@ -88,6 +89,13 @@ class ProcessingPreferencesPayload(BaseModel):
     auto_create_missing_employee_folder: bool = True
 
 
+class RegisterUserPayload(BaseModel):
+    company_name: str
+    tax_id: str
+    billing_address: str
+    email: str | None = None
+
+
 def _ensure_tenant_active(tenant_id: str) -> None:
     redis_conn = get_redis()
     if is_tenant_disabled(redis_conn, tenant_id):
@@ -142,6 +150,35 @@ async def health():
 async def auth_session(authorization: str | None = Header(default=None)):
     uid, email, tenant_id = _resolve_user_tenant_from_token(authorization)
     return {"uid": uid, "email": email, "tenant_id": tenant_id}
+
+
+@router.post("/auth/register")
+async def register_user(payload: RegisterUserPayload, authorization: str | None = Header(default=None)):
+    uid, token_email, tenant_id = _resolve_user_tenant_from_token(authorization)
+    profile_email = (payload.email or token_email or "").strip() or None
+    try:
+        profile = upsert_user_profile(
+            uid=uid,
+            tenant_id=tenant_id,
+            email=profile_email,
+            company_name=payload.company_name,
+            tax_id=payload.tax_id,
+            billing_address=payload.billing_address,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Profile save failed: {exc}")
+
+    return {
+        "status": "ok",
+        "uid": profile.uid,
+        "tenant_id": profile.tenant_id,
+        "email": profile.email,
+        "company_name": profile.company_name,
+        "tax_id": profile.tax_id,
+        "billing_address": profile.billing_address,
+    }
 
 @router.get("/drive/files")
 async def list_drive_files(

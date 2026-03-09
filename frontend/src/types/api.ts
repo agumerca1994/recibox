@@ -120,3 +120,20 @@ export type ReciboxStructureCreateResponse = {
   input_folder: { id: string; name?: string }
   tenant_config_updated: boolean
 }
+
+export type RegisterAccountPayload = {
+  company_name: string
+  tax_id: string
+  billing_address: string
+  email?: string | null
+}
+
+export type RegisterAccountResponse = {
+  status: string
+  uid: string
+  tenant_id: string
+  email?: string | null
+  company_name: string
+  tax_id: string
+  billing_address: string
+}

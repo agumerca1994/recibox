@@ -11,18 +11,30 @@ import './AuthGate.css'
 import { firebaseAuth, firebaseAuthEnabled } from './firebase'
 import { authEmailStorageKey, authUidStorageKey, tenantStorageKey } from './session'
 import { getEnvironmentChip } from '../config/environment'
+import { registerAccount } from '../api/recibox'
 
 type Props = {
   children: ReactNode
 }
 
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
+const websiteBaseUrl = (import.meta.env.VITE_WEBSITE_BASE_URL || 'http://localhost:8090').replace(/\/+$/, '')
+const registerPath = '/crear-cuenta'
 
 export default function AuthGate({ children }: Props) {
   const [loading, setLoading] = useState(firebaseAuthEnabled)
   const [user, setUser] = useState<User | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [taxId, setTaxId] = useState('')
+  const [billingAddress, setBillingAddress] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(() => {
+    if (typeof window === 'undefined') {
+      return 'login'
+    }
+    return window.location.pathname === registerPath ? 'register' : 'login'
+  })
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
@@ -73,12 +85,45 @@ export default function AuthGate({ children }: Props) {
       } else {
         window.localStorage.removeItem(authUidStorageKey)
         window.localStorage.removeItem(authEmailStorageKey)
+        if (typeof window !== 'undefined' && window.location.pathname === registerPath) {
+          window.history.replaceState({ auth: 'login' }, '', '/')
+          setAuthMode('login')
+        }
       }
       setUser(nextUser)
       setLoading(false)
     })
     return () => unsubscribe()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const handlePopState = () => {
+      setAuthMode(window.location.pathname === registerPath ? 'register' : 'login')
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  function goToRegister(): void {
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ auth: 'register' }, '', registerPath)
+    }
+    setError('')
+    setInfo('')
+    setAuthMode('register')
+  }
+
+  function goToLogin(): void {
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ auth: 'login' }, '', '/')
+    }
+    setError('')
+    setInfo('')
+    setAuthMode('login')
+  }
 
   async function signInWithEmail(): Promise<void> {
     setBusy(true)
@@ -98,9 +143,43 @@ export default function AuthGate({ children }: Props) {
     setError('')
     setInfo('')
     try {
-      await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password)
+      const normalizedEmail = email.trim()
+      const normalizedCompany = companyName.trim()
+      const normalizedTaxId = taxId.trim()
+      const normalizedAddress = billingAddress.trim()
+      if (!normalizedCompany || !normalizedTaxId || !normalizedAddress) {
+        throw new Error('Completa todos los datos de la empresa o usuario.')
+      }
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, normalizedEmail, password)
+      const idToken = await credential.user.getIdToken()
+      const register = await registerAccount(
+        {
+          company_name: normalizedCompany,
+          tax_id: normalizedTaxId,
+          billing_address: normalizedAddress,
+          email: normalizedEmail,
+        },
+        idToken,
+      )
+      if (!register.ok) {
+        throw new Error(register.error || 'No se pudo guardar la informacion de la cuenta.')
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la cuenta.')
+      try {
+        await signOut(firebaseAuth)
+      } catch {
+        // no-op
+      }
+      let message = 'No se pudo crear la cuenta.'
+      if (err && typeof err === 'object' && 'code' in err) {
+        const code = String((err as { code?: unknown }).code || '')
+        if (code === 'auth/email-already-in-use') {
+          message = 'Ya hay un usuario registrado para este correo electronico.'
+        }
+      } else if (err instanceof Error) {
+        message = err.message
+      }
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -149,9 +228,11 @@ export default function AuthGate({ children }: Props) {
 
   const chipClassName = environmentChip ? `auth-gate-chip auth-gate-chip-${environmentChip.tone}` : ''
 
+  const isRegister = authMode === 'register'
+
   return (
-    <main className="h-screen w-screen overflow-hidden bg-background-light dark:bg-background-dark font-display">
-      <div className="flex h-full w-full">
+    <main className="min-h-screen w-screen overflow-y-auto bg-background-light dark:bg-background-dark font-display auth-scroll">
+      <div className="flex min-h-screen w-full">
         <section className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-primary/10">
           <div className="absolute inset-0 z-10 bg-gradient-to-t from-dark-text/40 to-transparent"></div>
           <img
@@ -172,7 +253,7 @@ export default function AuthGate({ children }: Props) {
         </section>
 
         <section
-          className="w-full lg:w-1/2 flex flex-col justify-between bg-white dark:bg-background-dark p-8 lg:p-14"
+          className="w-full lg:w-1/2 flex flex-col justify-between bg-white dark:bg-background-dark p-6 sm:p-8 lg:p-14 overflow-y-auto auth-scroll"
           aria-label="Autenticacion Firebase"
         >
           <div className="lg:hidden flex items-center gap-3 mb-12">
@@ -180,26 +261,17 @@ export default function AuthGate({ children }: Props) {
             {environmentChip && <span className={chipClassName}>{environmentChip.label.toUpperCase()}</span>}
           </div>
 
-          <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-            <div className="mb-10">
-              <h2 className="text-3xl font-extrabold text-dark-text dark:text-slate-100 mb-2">Bienvenido de nuevo</h2>
-              <p className="text-neutral-custom dark:text-neutral-custom/80">Accede a tu panel de control administrativo</p>
+          <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full py-4">
+            <div className="mb-6 sm:mb-10">
+              <h2 className="text-3xl font-extrabold text-dark-text dark:text-slate-100 mb-2">
+                {isRegister ? 'Crea tu cuenta' : 'Bienvenido de nuevo'}
+              </h2>
+              <p className="text-neutral-custom dark:text-neutral-custom/80">
+                {isRegister
+                  ? 'Completa los datos para habilitar tu acceso al backoffice.'
+                  : 'Accede a tu panel de control administrativo'}
+              </p>
             </div>
-
-            <button
-              type="button"
-              disabled
-              title="Google Sign-In no disponible"
-              className="flex w-full items-center justify-center gap-3 rounded-xl bg-slate-300 text-slate-600 font-bold py-4 px-6 cursor-not-allowed opacity-80 mb-8"
-            >
-              <svg className="w-6 h-6" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"></path>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"></path>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"></path>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"></path>
-              </svg>
-              <span>Continuar con Google (no disponible)</span>
-            </button>
 
             <div className="relative flex py-5 items-center mb-6">
               <div className="flex-grow border-t border-neutral-custom/20"></div>
@@ -207,98 +279,205 @@ export default function AuthGate({ children }: Props) {
               <div className="flex-grow border-t border-neutral-custom/20"></div>
             </div>
 
-            <form
-              className="space-y-4 mb-6"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void signInWithEmail()
-              }}
-            >
-              <div>
-                <label className="auth-gate-label block mb-1" htmlFor="auth-email">
-                  Correo
-                </label>
-                <input
-                  id="auth-email"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+            {isRegister ? (
+              <form
+                className="space-y-4 mb-6"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void createAccount()
+                }}
+              >
+                <div>
+                  <label className="auth-gate-label block mb-1" htmlFor="register-company">
+                    Nombre de usuario o empresa
+                  </label>
+                  <input
+                    id="register-company"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                    type="text"
+                    value={companyName}
+                    onChange={(event) => setCompanyName(event.target.value)}
+                    disabled={busy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="auth-gate-label block mb-1" htmlFor="register-tax-id">
+                    Cuit/Cuil
+                  </label>
+                  <input
+                    id="register-tax-id"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                    type="text"
+                    value={taxId}
+                    onChange={(event) => setTaxId(event.target.value)}
+                    disabled={busy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="auth-gate-label block mb-1" htmlFor="register-address">
+                    Direccion de facturacion
+                  </label>
+                  <input
+                    id="register-address"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                    type="text"
+                    value={billingAddress}
+                    onChange={(event) => setBillingAddress(event.target.value)}
+                    disabled={busy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="auth-gate-label block mb-1" htmlFor="auth-email">
+                    Correo electronico
+                  </label>
+                  <input
+                    id="auth-email"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    disabled={busy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="auth-gate-label block mb-1" htmlFor="auth-password">
+                    Contrasena
+                  </label>
+                  <input
+                    id="auth-password"
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    disabled={busy}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-primary hover:bg-primary/90 text-dark-text font-bold py-4 px-6 transition-all shadow-lg shadow-primary/20 disabled:opacity-70 disabled:cursor-not-allowed"
                   disabled={busy}
-                  required
-                />
-              </div>
-              <div>
-                <label className="auth-gate-label block mb-1" htmlFor="auth-password">
-                  Contrasena
-                </label>
-                <input
-                  id="auth-password"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                >
+                  {busy ? 'Procesando...' : 'Crear cuenta'}
+                </button>
+              </form>
+            ) : (
+              <>
+                <form
+                  className="space-y-4 mb-6"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void signInWithEmail()
+                  }}
+                >
+                  <div>
+                    <label className="auth-gate-label block mb-1" htmlFor="auth-email">
+                      Correo
+                    </label>
+                    <input
+                      id="auth-email"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="auth-gate-label block mb-1" htmlFor="auth-password">
+                      Contrasena
+                    </label>
+                    <input
+                      id="auth-password"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm focus:border-primary focus:ring-primary"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-primary hover:bg-primary/90 text-dark-text font-bold py-4 px-6 transition-all shadow-lg shadow-primary/20 disabled:opacity-70 disabled:cursor-not-allowed"
+                    disabled={busy}
+                  >
+                    {busy ? 'Procesando...' : 'Iniciar sesion'}
+                  </button>
+                </form>
+
+                <div className="flex items-center justify-between gap-4 mb-8">
+                  <button
+                    type="button"
+                    className="text-sm font-semibold underline text-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={goToRegister}
+                    disabled={busy}
+                  >
+                    Crear cuenta
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm underline text-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    onClick={() => void resetPassword()}
+                    disabled={busy}
+                  >
+                    Olvide mi contrasena
+                  </button>
+                </div>
+              </>
+            )}
+
+            {isRegister && (
+              <div className="flex items-center justify-between gap-4 mb-8">
+                <button
+                  type="button"
+                  className="text-sm font-semibold underline text-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                  onClick={goToLogin}
                   disabled={busy}
-                  required
-                />
+                >
+                  Ya tengo cuenta
+                </button>
               </div>
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-primary hover:bg-primary/90 text-dark-text font-bold py-4 px-6 transition-all shadow-lg shadow-primary/20 disabled:opacity-70 disabled:cursor-not-allowed"
-                disabled={busy}
-              >
-                {busy ? 'Procesando...' : 'Iniciar sesion'}
-              </button>
-            </form>
+            )}
 
-            <div className="flex items-center justify-between gap-4 mb-8">
-              <button
-                type="button"
-                className="text-sm font-semibold underline text-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                onClick={() => void createAccount()}
-                disabled={busy}
-              >
-                Crear cuenta
-              </button>
-              <button
-                type="button"
-                className="text-sm underline text-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                onClick={() => void resetPassword()}
-                disabled={busy}
-              >
-                Olvide mi contrasena
-              </button>
-            </div>
-
-            {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-            {info && <p className="text-sky-700 text-sm mb-3">{info}</p>}
-
-            <div className="bg-background-light dark:bg-primary/5 p-1 rounded-xl flex mb-8">
-              <button
-                type="button"
-                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-white dark:bg-background-dark text-dark-text dark:text-slate-100 shadow-sm font-semibold transition-all"
-              >
-                <span className="material-symbols-outlined text-lg">corporate_fare</span>
-                Acceso Empresa
-              </button>
-              <button
-                type="button"
-                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg text-neutral-custom font-medium"
-              >
-                <span className="material-symbols-outlined text-lg">person</span>
-                Uso Personal
-              </button>
+            <div className="min-h-[32px]">
+              {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+              {!error && info && <p className="text-sky-700 text-sm mb-3">{info}</p>}
             </div>
 
             <p className="text-center text-xs text-neutral-custom leading-relaxed">
-              Al continuar, aceptas nuestros <a className="underline hover:text-dark-text font-medium" href="#">terminos de servicio</a> y{' '}
-              <a className="underline hover:text-dark-text font-medium" href="#">politica de privacidad</a>.
+              Al continuar, aceptas nuestros{' '}
+              <a
+                className="underline hover:text-dark-text font-medium"
+                href={`${websiteBaseUrl}/terminos-y-condiciones`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                terminos de servicio
+              </a>{' '}
+              y{' '}
+              <a
+                className="underline hover:text-dark-text font-medium"
+                href={`${websiteBaseUrl}/politicas-de-privacidad`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                politica de privacidad
+              </a>
+              .
             </p>
           </div>
 
-          <footer className="mt-12 flex flex-col md:flex-row items-center justify-between gap-4 border-t border-neutral-custom/10 pt-8">
+          <footer className="mt-8 sm:mt-12 flex flex-col md:flex-row items-center justify-between gap-4 border-t border-neutral-custom/10 pt-6 sm:pt-8 pb-6 sm:pb-0">
             <p className="text-neutral-custom text-sm">© 2024 Recibox. Todos los derechos reservados.</p>
             <div className="flex gap-6">
               <a className="text-neutral-custom hover:text-primary text-sm font-medium transition-colors" href="#">

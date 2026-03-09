@@ -11,6 +11,8 @@ import type {
   ProcessingPreferences,
   ReciboxStructureCheckResponse,
   ReciboxStructureCreateResponse,
+  RegisterAccountPayload,
+  RegisterAccountResponse,
   TenantDriveConfig,
 } from '../types/api'
 
@@ -107,6 +109,16 @@ export function getProcessingPreferences(tenantId: string) {
 export function putProcessingPreferences(tenantId: string, payload: ProcessingPreferences) {
   return apiRequest<ProcessingPreferences>(`/tenants/${encodeURIComponent(tenantId)}/processing-preferences`, {
     method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function registerAccount(payload: RegisterAccountPayload, idToken: string) {
+  return apiRequest<RegisterAccountResponse>('/auth/register', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
     body: JSON.stringify(payload),
   })
 }
