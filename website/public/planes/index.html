@@ -37,7 +37,8 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-20 items-center">
           <a class="flex items-center gap-2" href="/home"><img alt="Logo Recibox" class="h-10 w-auto" src="/assets/branding/logo_recibox.svg" /></a>
-          <div class="hidden md:flex space-x-6 items-center">
+          <div class="flex items-center gap-3">
+            <div class="hidden md:flex space-x-6 items-center">
             <details class="relative">
               <summary class="list-none cursor-pointer text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1">
                 <span>RECIBOX</span>
@@ -61,7 +62,38 @@
             </details>
             <a class="text-gray-600 hover:text-primary px-3 py-2 rounded-md text-sm font-medium transition-colors" href="/home#app-movil">App Movil</a>
             <a class="bg-primary text-white hover:bg-opacity-90 px-5 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg hover:shadow-xl" data-backoffice-link="" href="https://backoffice.recibox.com.ar/" rel="noopener noreferrer" target="_blank">BACKOFFICE</a>
+            </div>
+            <button aria-controls="mobile-menu" aria-expanded="false" class="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-full border border-gray-200 text-gray-600 hover:text-primary hover:border-primary/40 transition-colors" id="mobile-menu-button" type="button">
+              <span class="material-symbols-outlined text-[22px]">menu</span>
+            </button>
           </div>
+        </div>
+      </div>
+      <div class="md:hidden hidden border-t border-gray-200 bg-white/95 backdrop-blur-sm pb-4 pt-3" id="mobile-menu">
+        <div class="space-y-1">
+          <details class="px-4">
+            <summary class="list-none cursor-pointer text-gray-700 hover:text-primary py-2 text-sm font-medium flex items-center justify-between">
+              <span>Recibox</span>
+              <span class="material-symbols-outlined text-base">expand_more</span>
+            </summary>
+            <div class="mt-2 ml-2 space-y-1 border-l border-gray-200 pl-3">
+              <a class="block py-1.5 text-sm text-gray-600 hover:text-primary" href="/planes">Planes</a>
+              <a class="block py-1.5 text-sm text-gray-600 hover:text-primary" href="/home#funcionalidades">Funcionalidades</a>
+              <details class="py-1.5">
+                <summary class="list-none cursor-pointer text-sm text-gray-600 hover:text-primary flex items-center justify-between">
+                  <span>Nosotros</span>
+                  <span class="material-symbols-outlined text-base">chevron_right</span>
+                </summary>
+                <div class="mt-2 ml-2 space-y-1 border-l border-gray-200 pl-3">
+                  <a class="block py-1.5 text-sm text-gray-600 hover:text-primary" href="/terminos-y-condiciones">Terminos y condiciones</a>
+                  <a class="block py-1.5 text-sm text-gray-600 hover:text-primary" href="/politicas-de-privacidad">Politicas de privacidad</a>
+                </div>
+              </details>
+              <a class="block py-1.5 text-sm text-gray-600 hover:text-primary" href="/preguntas-frecuentes">Preguntas Frecuentes</a>
+            </div>
+          </details>
+          <a class="block px-4 py-2 text-sm font-medium text-gray-700 hover:text-primary" href="/home#app-movil">App Movil</a>
+          <a class="mx-4 mt-2 inline-flex items-center justify-center w-[calc(100%-2rem)] bg-primary text-white hover:bg-opacity-90 px-5 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg hover:shadow-xl" data-backoffice-link="" href="https://backoffice.recibox.com.ar/" rel="noopener noreferrer" target="_blank">BACKOFFICE</a>
         </div>
       </div>
     </nav>
@@ -172,6 +204,18 @@
         </div>
       </div>
     </footer>
+  <script>
+    (function () {
+      const button = document.getElementById("mobile-menu-button");
+      const menu = document.getElementById("mobile-menu");
+      if (!button || !menu) return;
+      button.addEventListener("click", () => {
+        const expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!expanded));
+        menu.classList.toggle("hidden", expanded);
+      });
+    })();
+  </script>
   <script defer="" src="/assets/backoffice-link.js"></script>
 </body>
 </html>
