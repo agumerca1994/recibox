@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from pathlib import Path
 import json
@@ -10,6 +10,31 @@ from rq.job import Job
 from app.queue import get_queue, get_redis
 from app.core.config import settings
 from app.workers.flow_job import run_flow
+from app.services.templates.builder import build_template_draft_for_file
+from app.services.templates.processor import run_template_flow
+from app.services.templates.store import (
+    create_document_template,
+    delete_document_template,
+    get_document_template,
+    list_document_templates,
+    resolve_template_mode,
+    update_document_template,
+)
+from app.services.templates.classification_rules import (
+    evaluate_classification_rule_status,
+    extract_document_field_definitions,
+    get_classification_rule,
+    list_classification_rules_for_templates,
+    parse_classification_rule_payload,
+    serialize_classification_rule,
+    upsert_classification_rule,
+    validate_classification_rule_against_fields,
+)
+from app.services.templates.source_pdf import (
+    delete_template_source_pdf,
+    resolve_template_source_pdf,
+    save_template_source_pdf,
+)
 from app.services.storage import gdrive
 from app.services.storage.gdrive_ops import (
     ensure_employee_folder,
@@ -89,6 +114,46 @@ class ProcessingPreferencesPayload(BaseModel):
     auto_create_missing_employee_folder: bool = True
 
 
+class IngestDrivePayload(BaseModel):
+    processing_mode: str = "default"
+    template_id: str | None = None
+
+
+class TemplateDraftFromFilePayload(BaseModel):
+    file_id: str
+    file_name: str | None = None
+
+
+class TemplatePayload(BaseModel):
+    name: str
+    description: str | None = None
+    is_active: bool = True
+    original_model: dict
+    custom_model: dict
+    sample_file_metadata: dict | None = None
+    field_transforms: list[dict] | None = None
+
+
+class ClassificationRuleNamePartPayload(BaseModel):
+    part_type: str
+    field_key: str | None = None
+    literal_value: str | None = None
+    index_kind: str | None = None
+    index_start_numeric: int | None = None
+    index_start_alpha: str | None = None
+    index_direction: str | None = None
+
+
+class ClassificationRuleNodePayload(BaseModel):
+    node_type: str
+    conflict_policy: str | None = None
+    name_parts: list[ClassificationRuleNamePartPayload]
+
+
+class ClassificationRulePayload(BaseModel):
+    nodes: list[ClassificationRuleNodePayload]
+
+
 class RegisterUserPayload(BaseModel):
     company_name: str
     tax_id: str
@@ -139,6 +204,16 @@ def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Tenant mapping failed: {exc}")
     return user_tenant.uid, user_tenant.email, user_tenant.tenant_id
+
+
+def _resolve_template_rule_metadata(template, rule) -> tuple[str, bool, list[str]]:
+    field_definitions = extract_document_field_definitions(template.custom_model)
+    rule_status, rule_errors = evaluate_classification_rule_status(
+        rule=rule,
+        field_definitions=field_definitions,
+    )
+    has_rule = rule_status != "missing"
+    return rule_status, has_rule, rule_errors
 
 
 @router.get("/health")
@@ -588,25 +663,66 @@ async def download_drive_file(file_id: str, tenant_id: str = Query("default")):
     )
 
 @router.post("/ingest/drive")
-async def ingest_drive(tenant_id: str = Query("default")):
+async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str = Query("default")):
     _ensure_tenant_active(tenant_id)
     redis_conn = get_redis()
     cfg = _resolve_drive_config_or_400(tenant_id)
     lock_key = f"recibox:lock:{tenant_id}"
+    effective_payload = payload or IngestDrivePayload()
+    processing_mode = (effective_payload.processing_mode or "default").strip().lower()
+    template_id = (effective_payload.template_id or "").strip() or None
 
     # Prevent concurrent runs for same tenant.
     if not redis_conn.set(lock_key, "1", nx=True, ex=60 * 60):
         raise HTTPException(status_code=409, detail="Processing already running for tenant")
 
     q = get_queue()
-    job = q.enqueue(run_flow, tenant_id=tenant_id, job_timeout=settings.rq_job_timeout_seconds)
+    if processing_mode == "template":
+        if not template_id:
+            redis_conn.delete(lock_key)
+            raise HTTPException(status_code=400, detail="template_id is required when processing_mode=template")
+        try:
+            template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+        except Exception as exc:
+            redis_conn.delete(lock_key)
+            raise HTTPException(status_code=500, detail=f"Template lookup failed: {exc}")
+        if not template:
+            redis_conn.delete(lock_key)
+            raise HTTPException(status_code=400, detail="Template not found")
+        if not template.is_active:
+            redis_conn.delete(lock_key)
+            raise HTTPException(status_code=400, detail="Template is inactive")
+        if resolve_template_mode(template.custom_model) != "document":
+            redis_conn.delete(lock_key)
+            raise HTTPException(status_code=400, detail="Template is not compatible with document mode")
+
+        rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
+        rule_status, _, _ = _resolve_template_rule_metadata(template, rule)
+        if rule_status != "ready":
+            redis_conn.delete(lock_key)
+            if rule_status == "missing":
+                raise HTTPException(status_code=400, detail="Template has no classification rule")
+            raise HTTPException(status_code=400, detail="Template classification rule is invalid")
+        job = q.enqueue(
+            run_template_flow,
+            tenant_id=tenant_id,
+            template_id=template_id,
+            job_timeout=settings.rq_job_timeout_seconds,
+        )
+    else:
+        job = q.enqueue(run_flow, tenant_id=tenant_id, job_timeout=settings.rq_job_timeout_seconds)
     job.meta["tenant_id"] = tenant_id
+    job.meta["processing_mode"] = processing_mode
+    if template_id:
+        job.meta["template_id"] = template_id
     job.save_meta()
     return {
         "status": "queued",
         "job_id": job.id,
         "tenant_id": tenant_id,
         "drive_config_source": cfg.source,
+        "processing_mode": processing_mode,
+        "template_id": template_id,
     }
 
 
@@ -993,3 +1109,338 @@ async def delete_tenant_processing_preferences(tenant_id: str):
     redis_conn = get_redis()
     deleted = clear_tenant_processing_preferences(redis_conn, tenant_id)
     return {"status": "ok", "tenant_id": tenant_id, "deleted": deleted}
+
+
+@router.post("/tenants/{tenant_id}/templates/draft-from-file")
+async def create_template_draft_from_file(tenant_id: str, payload: TemplateDraftFromFilePayload):
+    _ensure_tenant_active(tenant_id)
+    try:
+        draft = build_template_draft_for_file(
+            payload.file_id.strip(),
+            tenant_id=tenant_id,
+            file_name=payload.file_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Draft failed: {exc}")
+
+    return {
+        "tenant_id": tenant_id,
+        "file_id": draft["file_id"],
+        "file_name": draft["file_name"],
+        "original_model": draft["original_model"],
+        "custom_model": draft["custom_model"],
+    }
+
+
+@router.get("/tenants/{tenant_id}/templates")
+async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
+    try:
+        templates = list_document_templates(tenant_id=tenant_id, include_inactive=include_inactive)
+        rules_by_template = list_classification_rules_for_templates(
+            tenant_id=tenant_id,
+            template_ids=[template.template_id for template in templates],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
+
+    serialized_templates: list[dict] = []
+    for template in templates:
+        rule = rules_by_template.get(template.template_id)
+        rule_status, has_rule, _ = _resolve_template_rule_metadata(template, rule)
+        serialized_templates.append(
+            {
+                "template_id": template.template_id,
+                "tenant_id": template.tenant_id,
+                "name": template.name,
+                "description": template.description,
+                "is_active": template.is_active,
+                "template_mode": resolve_template_mode(template.custom_model),
+                "sample_file_metadata": template.sample_file_metadata,
+                "field_transforms": template.field_transforms,
+                "rule_status": rule_status,
+                "has_rule": has_rule,
+                "updated_at": template.updated_at,
+            }
+        )
+
+    return {
+        "tenant_id": tenant_id,
+        "count": len(templates),
+        "templates": serialized_templates,
+    }
+
+
+@router.get("/tenants/{tenant_id}/templates/{template_id}")
+async def get_template_detail(tenant_id: str, template_id: str):
+    try:
+        template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+        rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get failed: {exc}")
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    rule_status, has_rule, rule_errors = _resolve_template_rule_metadata(template, rule)
+    serialized_rule = serialize_classification_rule(rule)
+    if serialized_rule:
+        serialized_rule["rule_status"] = rule_status
+
+    return {
+        "template_id": template.template_id,
+        "tenant_id": template.tenant_id,
+        "name": template.name,
+        "description": template.description,
+        "is_active": template.is_active,
+        "template_mode": resolve_template_mode(template.custom_model),
+        "original_model": template.original_model,
+        "custom_model": template.custom_model,
+        "sample_file_metadata": template.sample_file_metadata,
+        "field_transforms": template.field_transforms,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "rule_errors": rule_errors,
+        "classification_rule": serialized_rule,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }
+
+
+@router.get("/tenants/{tenant_id}/templates/{template_id}/source-pdf")
+async def get_template_source_pdf(tenant_id: str, template_id: str):
+    _ensure_tenant_active(tenant_id)
+    try:
+        template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get template failed: {exc}")
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    try:
+        source_path = resolve_template_source_pdf(
+            tenant_id=tenant_id,
+            template_id=template_id,
+            sample_file_metadata=template.sample_file_metadata,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Source PDF read failed: {exc}")
+
+    if not source_path:
+        raise HTTPException(status_code=404, detail="Template source PDF not found")
+
+    file_name = f"{template_id}.pdf"
+    metadata = template.sample_file_metadata or {}
+    candidate_name = metadata.get("file_name")
+    if isinstance(candidate_name, str) and candidate_name.strip():
+        file_name = candidate_name.strip()
+
+    return FileResponse(path=str(source_path), media_type="application/pdf", filename=file_name)
+
+
+@router.post("/tenants/{tenant_id}/templates/{template_id}/source-pdf")
+async def post_template_source_pdf(tenant_id: str, template_id: str, file: UploadFile = File(...)):
+    _ensure_tenant_active(tenant_id)
+    try:
+        template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get template failed: {exc}")
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    content_type = (file.content_type or "").strip().lower()
+    if content_type and content_type not in {"application/pdf", "application/x-pdf"}:
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    try:
+        content = await file.read()
+        save_template_source_pdf(tenant_id=tenant_id, template_id=template_id, content=content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Source PDF save failed: {exc}")
+    finally:
+        await file.close()
+
+    return {"status": "ok", "tenant_id": tenant_id, "template_id": template_id, "stored": True}
+
+
+@router.post("/tenants/{tenant_id}/templates")
+async def post_template(tenant_id: str, payload: TemplatePayload):
+    try:
+        template = create_document_template(
+            tenant_id=tenant_id,
+            name=payload.name,
+            description=payload.description,
+            is_active=payload.is_active,
+            original_model=payload.original_model,
+            custom_model=payload.custom_model,
+            sample_file_metadata=payload.sample_file_metadata,
+            field_transforms=payload.field_transforms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Create failed: {exc}")
+
+    rule_status, has_rule, _ = _resolve_template_rule_metadata(template, None)
+    return {
+        "status": "ok",
+        "template_id": template.template_id,
+        "tenant_id": template.tenant_id,
+        "name": template.name,
+        "description": template.description,
+        "is_active": template.is_active,
+        "template_mode": resolve_template_mode(template.custom_model),
+        "original_model": template.original_model,
+        "custom_model": template.custom_model,
+        "sample_file_metadata": template.sample_file_metadata,
+        "field_transforms": template.field_transforms,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }
+
+
+@router.put("/tenants/{tenant_id}/templates/{template_id}")
+async def put_template(tenant_id: str, template_id: str, payload: TemplatePayload):
+    try:
+        template = update_document_template(
+            tenant_id=tenant_id,
+            template_id=template_id,
+            name=payload.name,
+            description=payload.description,
+            is_active=payload.is_active,
+            original_model=payload.original_model,
+            custom_model=payload.custom_model,
+            sample_file_metadata=payload.sample_file_metadata,
+            field_transforms=payload.field_transforms,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Update failed: {exc}")
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
+    rule_status, has_rule, rule_errors = _resolve_template_rule_metadata(template, rule)
+    serialized_rule = serialize_classification_rule(rule)
+    if serialized_rule:
+        serialized_rule["rule_status"] = rule_status
+
+    return {
+        "status": "ok",
+        "template_id": template.template_id,
+        "tenant_id": template.tenant_id,
+        "name": template.name,
+        "description": template.description,
+        "is_active": template.is_active,
+        "template_mode": resolve_template_mode(template.custom_model),
+        "original_model": template.original_model,
+        "custom_model": template.custom_model,
+        "sample_file_metadata": template.sample_file_metadata,
+        "field_transforms": template.field_transforms,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "rule_errors": rule_errors,
+        "classification_rule": serialized_rule,
+        "created_at": template.created_at,
+        "updated_at": template.updated_at,
+    }
+
+
+@router.get("/tenants/{tenant_id}/templates/{template_id}/classification-rule")
+async def get_template_classification_rule(tenant_id: str, template_id: str):
+    try:
+        template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get template failed: {exc}")
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if resolve_template_mode(template.custom_model) != "document":
+        raise HTTPException(status_code=400, detail="Template is not compatible with document mode")
+
+    try:
+        rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get classification rule failed: {exc}")
+
+    rule_status, has_rule, rule_errors = _resolve_template_rule_metadata(template, rule)
+    serialized_rule = serialize_classification_rule(rule)
+    if serialized_rule:
+        serialized_rule["rule_status"] = rule_status
+
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "template_id": template_id,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "rule_errors": rule_errors,
+        "classification_rule": serialized_rule,
+    }
+
+
+@router.put("/tenants/{tenant_id}/templates/{template_id}/classification-rule")
+async def put_template_classification_rule(
+    tenant_id: str,
+    template_id: str,
+    payload: ClassificationRulePayload,
+):
+    try:
+        template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get template failed: {exc}")
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if resolve_template_mode(template.custom_model) != "document":
+        raise HTTPException(status_code=400, detail="Template is not compatible with document mode")
+
+    try:
+        parsed_rule = parse_classification_rule_payload(payload.model_dump())
+        field_definitions = extract_document_field_definitions(template.custom_model)
+        validation_errors = validate_classification_rule_against_fields(parsed_rule, field_definitions)
+        if validation_errors:
+            raise HTTPException(status_code=400, detail="; ".join(validation_errors))
+
+        saved_rule = upsert_classification_rule(
+            tenant_id=tenant_id,
+            template_id=template_id,
+            rule=parsed_rule,
+            rule_status="ready",
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Save classification rule failed: {exc}")
+
+    rule_status, has_rule, rule_errors = _resolve_template_rule_metadata(template, saved_rule)
+    serialized_rule = serialize_classification_rule(saved_rule)
+    if serialized_rule:
+        serialized_rule["rule_status"] = rule_status
+
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "template_id": template_id,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "rule_errors": rule_errors,
+        "classification_rule": serialized_rule,
+    }
+
+
+@router.delete("/tenants/{tenant_id}/templates/{template_id}")
+async def remove_template(tenant_id: str, template_id: str):
+    try:
+        deleted = delete_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template not found")
+    delete_template_source_pdf(tenant_id=tenant_id, template_id=template_id)
+    return {"status": "ok", "tenant_id": tenant_id, "template_id": template_id, "deleted": True}

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import './App.css'
 import {
   adoptReciboxFolder,
+  buildDrivePdfDownloadUrl,
+  buildTemplateSourcePdfUrl,
   checkReciboxStructure,
+  createTemplate,
   createReciboxStructure,
+  deleteTemplate,
+  getTemplate,
+  getTemplateClassificationRule,
   getGoogleOAuthStatus,
   getJobStatus,
   getProcessingPreferences,
@@ -13,13 +20,17 @@ import {
   listFilesInFolder,
   listDriveFiles,
   listPickerFolders,
+  listTemplates,
   putProcessingPreferences,
+  putTemplateClassificationRule,
   putTenantDriveConfig,
   unlinkGoogleOAuth,
+  uploadTemplateSourcePdf,
+  updateTemplate,
 } from './api/recibox'
 import { signOutFirebaseUser } from './auth/firebase'
 import { authEmailStorageKey, tenantStorageKey } from './auth/session'
-import { getEnvironmentChip } from './config/environment'
+import { getEnvironmentChip, getRuntimeSetting } from './config/environment'
 import type {
   DriveFile,
   DriveFolder,
@@ -27,10 +38,46 @@ import type {
   JobStatusResponse,
   ProcessingPreferences,
   ReciboxStructureCheckResponse,
+  TemplateFieldType,
+  TemplateRect,
+  TemplateCustomModel,
+  TemplateMode,
+  DocumentTemplateField,
+  ClassificationRule,
+  ClassificationRuleIndexDirection,
+  ClassificationRuleIndexKind,
+  ClassificationRulePartType,
+  ClassificationRulePayload,
+  RuleStatus,
+  TemplateFieldTransformCaseMode,
+  TemplateFieldTransformDateOutput,
+  TemplateFieldTransformGroup,
+  TemplateFieldTransformOperation,
+  TemplateFieldTransformStep,
+  TemplateSummary,
 } from './types/api'
 
-const defaultTenant = (import.meta.env.VITE_TENANT_ID || 'acme').trim() || 'acme'
+const defaultTenant = normalizeTenantId(import.meta.env.VITE_TENANT_ID || 'acme') || 'acme'
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
+const pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+const templateLocalUploadEnabled = (getRuntimeSetting('VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED') || 'false').toLowerCase() === 'true'
+GlobalWorkerOptions.workerSrc = pdfWorkerSrc
+const pdfWorkerLoadErrorMessage =
+  'No se pudo cargar el worker PDF; revisar MIME `.mjs` en frontend y volver a intentar.'
+
+function isPdfWorkerLoadError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const message = error.message.toLowerCase()
+  return (
+    message.includes('setting up fake worker failed') ||
+    message.includes('failed to fetch dynamically imported module') ||
+    message.includes('importing a module script failed') ||
+    message.includes('pdf.worker') ||
+    message.includes('fake worker')
+  )
+}
 
 type OAuthMessage = {
   source?: string
@@ -44,6 +91,7 @@ type ProcessState = 'running' | 'success' | 'error'
 type SortOrder = 'asc' | 'desc'
 type FilenameFormatMode = 'mm_yyyy_employee' | 'yyyy_mm_employee' | 'yyyy_employee' | 'custom'
 type EmployeeFolderNumberMode = 'indexed_number' | 'number_only' | 'no_index' | 'custom'
+type ProcessingMode = 'default' | 'template'
 
 type ProcessItem = {
   id: string
@@ -92,6 +140,95 @@ type AutomationRulesSnapshot = {
   notifyOnFailure: boolean
 }
 
+type PdfTextToken = {
+  text: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+type TemplateEditorField = {
+  id: string
+  key: string
+  name: string
+  label: string | null
+  suggestedLabel: string | null
+  type: TemplateFieldType
+  rect: TemplateRect
+  detectedValue: string | null
+  sampleValue: string | null
+  required: boolean
+  transforms: TemplateFieldTransformStepDraft[]
+}
+
+type TemplateFieldTransformStepDraft = {
+  id: string
+  operation: TemplateFieldTransformOperation
+  from: string
+  to: string
+  chars: string
+  delimiter: string
+  index: string
+  mode: TemplateFieldTransformCaseMode
+  output: TemplateFieldTransformDateOutput
+}
+
+type TemplateFieldDraftForm = {
+  name: string
+  label: string
+  type: TemplateFieldType
+  detectedValue: string
+  suggestedLabel: string
+  required: boolean
+}
+
+type TemplateEditorState = {
+  name: string
+  description: string
+  isActive: boolean
+  sourcePdfBlob: Blob | null
+  previewImageDataUrl: string
+  pageSize: { width: number; height: number } | null
+  textTokens: PdfTextToken[]
+  fields: TemplateEditorField[]
+  sampleFileId: string
+  sampleFileName: string
+}
+
+type ClassificationRuleNodeDraft = {
+  id: string
+  nodeType: 'folder' | 'file'
+  conflictPolicy: 'use_existing' | 'create_new' | null
+  nameParts: ClassificationRuleNamePartDraft[]
+}
+
+type ClassificationRuleNamePartDraft = {
+  id: string
+  partType: RulePartTypeDraft
+  fieldKey: string
+  literalValue: string
+  indexKind: ClassificationRuleIndexKind
+  indexStartNumeric: string
+  indexStartAlpha: string
+  indexDirection: ClassificationRuleIndexDirection
+}
+
+type RuleFieldOption = {
+  key: string
+  label: string
+  required: boolean
+  previewValue: string
+}
+
+type RulePartTypeDraft = ClassificationRulePartType | 'space'
+
+function normalizeTenantId(value: string | null | undefined): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+}
+
 const sectionPathMap: Record<Section, string> = {
   cuenta: '/cuentas',
   procesar: '/procesar',
@@ -120,6 +257,41 @@ const defaultCustomFilenameFormat: FilenameCustomFormat = {
   sep2: ')',
   part3: 'EMPLOYEE',
 }
+
+const transformOperationOptions: Array<{ value: TemplateFieldTransformOperation; label: string }> = [
+  { value: 'trim', label: 'Trim (recortar espacios)' },
+  { value: 'replace', label: 'Replace (reemplazar texto)' },
+  { value: 'remove_chars', label: 'Remove chars (quitar caracteres)' },
+  { value: 'split', label: 'Split (dividir por separador)' },
+  { value: 'case', label: 'Case (mayus/minus/titulo)' },
+  { value: 'date_format', label: 'Date format (formato fecha)' },
+]
+
+const transformCaseModeOptions: Array<{ value: TemplateFieldTransformCaseMode; label: string }> = [
+  { value: 'upper', label: 'MAYUSCULAS' },
+  { value: 'lower', label: 'minusculas' },
+  { value: 'title', label: 'Titulo' },
+]
+
+const transformDateOutputOptions: Array<{ value: TemplateFieldTransformDateOutput; label: string }> = [
+  { value: 'DD', label: 'DD' },
+  { value: 'MM', label: 'MM' },
+  { value: 'YYYY', label: 'YYYY' },
+  { value: 'MM/YYYY', label: 'MM/YYYY' },
+  { value: 'YYYY-MM', label: 'YYYY-MM' },
+  { value: 'MMM', label: 'MMM (mes corto ES)' },
+  { value: 'MMMM', label: 'MMMM (mes completo ES)' },
+]
+
+const ruleIndexKindOptions: Array<{ value: ClassificationRuleIndexKind; label: string }> = [
+  { value: 'numeric', label: 'Numerico (0-9999)' },
+  { value: 'alphabetic', label: 'Alfabetico (A-Z)' },
+]
+
+const ruleIndexDirectionOptions: Array<{ value: ClassificationRuleIndexDirection; label: string }> = [
+  { value: 'incremental', label: 'Incremental (+)' },
+  { value: 'decremental', label: 'Decremental (-)' },
+]
 
 const employeeNameCollator = new Intl.Collator('es', {
   sensitivity: 'base',
@@ -323,13 +495,901 @@ function getProcessSortTimestamp(item: ProcessItem): number {
   return item.createdAt
 }
 
+function buildTemplateNameFromFile(fileName: string): string {
+  const base = fileName.replace(/\.pdf$/i, '').trim()
+  return base || 'Nueva plantilla'
+}
+
+function createEmptyTemplateEditor(): TemplateEditorState {
+  return {
+    name: '',
+    description: '',
+    isActive: true,
+    sourcePdfBlob: null,
+    previewImageDataUrl: '',
+    pageSize: null,
+    textTokens: [],
+    fields: [],
+    sampleFileId: '',
+    sampleFileName: '',
+  }
+}
+
+function createEmptyTemplateFieldDraft(): TemplateFieldDraftForm {
+  return {
+    name: '',
+    label: '',
+    type: 'string',
+    detectedValue: '',
+    suggestedLabel: '',
+    required: false,
+  }
+}
+
+function clampUnit(value: number): number {
+  if (value < 0) {
+    return 0
+  }
+  if (value > 1) {
+    return 1
+  }
+  return value
+}
+
+function sanitizeFieldKey(value: string, fallback: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return normalized || fallback
+}
+
+function randomId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `fld-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`
+}
+
+function normalizeTransformOperation(value: unknown): TemplateFieldTransformOperation {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (raw === 'replace' || raw === 'remove_chars' || raw === 'split' || raw === 'case' || raw === 'date_format') {
+    return raw
+  }
+  return 'trim'
+}
+
+function createTransformStepDraft(operation: TemplateFieldTransformOperation = 'trim'): TemplateFieldTransformStepDraft {
+  return {
+    id: randomId(),
+    operation,
+    from: '',
+    to: '',
+    chars: '',
+    delimiter: '',
+    index: '1',
+    mode: 'lower',
+    output: 'YYYY',
+  }
+}
+
+function mapApiStepToDraft(step: TemplateFieldTransformStep): TemplateFieldTransformStepDraft {
+  const operation = normalizeTransformOperation(step.operation)
+  const draft = createTransformStepDraft(operation)
+  draft.from = typeof step.from === 'string' ? step.from : ''
+  draft.to = typeof step.to === 'string' ? step.to : ''
+  draft.chars = typeof step.chars === 'string' ? step.chars : ''
+  draft.delimiter = typeof step.delimiter === 'string' ? step.delimiter : ''
+  draft.index = typeof step.index === 'number' && Number.isFinite(step.index) && step.index >= 1 ? String(step.index) : '1'
+  if (step.mode === 'upper' || step.mode === 'lower' || step.mode === 'title') {
+    draft.mode = step.mode
+  }
+  if (
+    step.output === 'DD' ||
+    step.output === 'MM' ||
+    step.output === 'YYYY' ||
+    step.output === 'MM/YYYY' ||
+    step.output === 'YYYY-MM' ||
+    step.output === 'MMM' ||
+    step.output === 'MMMM'
+  ) {
+    draft.output = step.output
+  }
+  return draft
+}
+
+function mapDraftStepToApi(step: TemplateFieldTransformStepDraft): TemplateFieldTransformStep {
+  const operation = normalizeTransformOperation(step.operation)
+  if (operation === 'replace') {
+    return { operation, from: step.from, to: step.to }
+  }
+  if (operation === 'remove_chars') {
+    return { operation, chars: step.chars }
+  }
+  if (operation === 'split') {
+    const parsedIndex = Number.parseInt(step.index, 10)
+    return { operation, delimiter: step.delimiter, index: Number.isFinite(parsedIndex) && parsedIndex >= 1 ? parsedIndex : 1 }
+  }
+  if (operation === 'case') {
+    return { operation, mode: step.mode }
+  }
+  if (operation === 'date_format') {
+    return { operation, output: step.output }
+  }
+  return { operation }
+}
+
+function mapFieldTransformsByKey(
+  fieldTransforms: TemplateFieldTransformGroup[] | null | undefined,
+): Map<string, TemplateFieldTransformStepDraft[]> {
+  const byKey = new Map<string, TemplateFieldTransformStepDraft[]>()
+  const groups = Array.isArray(fieldTransforms) ? fieldTransforms : []
+  for (const group of groups) {
+    const key = typeof group.field_key === 'string' ? group.field_key.trim() : ''
+    if (!key) {
+      continue
+    }
+    const steps = Array.isArray(group.steps) ? group.steps.slice(0, 3).map(mapApiStepToDraft) : []
+    byKey.set(key, steps)
+  }
+  return byKey
+}
+
+function serializeTemplateFieldTransforms(fields: TemplateEditorField[]): TemplateFieldTransformGroup[] {
+  const out: TemplateFieldTransformGroup[] = []
+  for (const field of fields) {
+    const key = field.key.trim()
+    if (!key) {
+      continue
+    }
+    const steps = (Array.isArray(field.transforms) ? field.transforms : []).slice(0, 3).map(mapDraftStepToApi)
+    if (steps.length === 0) {
+      continue
+    }
+    out.push({
+      field_key: key,
+      steps,
+    })
+  }
+  return out
+}
+
+type DateParts = { day: number | null; month: number | null; year: number | null }
+type TransformPipelinePreview = {
+  snapshots: string[]
+  result: string
+  error: string | null
+}
+
+const transformSpanishMonths: Record<string, number> = {
+  enero: 1,
+  ene: 1,
+  febrero: 2,
+  feb: 2,
+  marzo: 3,
+  mar: 3,
+  abril: 4,
+  abr: 4,
+  mayo: 5,
+  may: 5,
+  junio: 6,
+  jun: 6,
+  julio: 7,
+  jul: 7,
+  agosto: 8,
+  ago: 8,
+  septiembre: 9,
+  setiembre: 9,
+  sep: 9,
+  set: 9,
+  octubre: 10,
+  oct: 10,
+  noviembre: 11,
+  nov: 11,
+  diciembre: 12,
+  dic: 12,
+}
+
+const transformMonthAbbr: Record<number, string> = {
+  1: 'ENE',
+  2: 'FEB',
+  3: 'MAR',
+  4: 'ABR',
+  5: 'MAY',
+  6: 'JUN',
+  7: 'JUL',
+  8: 'AGO',
+  9: 'SEP',
+  10: 'OCT',
+  11: 'NOV',
+  12: 'DIC',
+}
+
+const transformMonthFull: Record<number, string> = {
+  1: 'ENERO',
+  2: 'FEBRERO',
+  3: 'MARZO',
+  4: 'ABRIL',
+  5: 'MAYO',
+  6: 'JUNIO',
+  7: 'JULIO',
+  8: 'AGOSTO',
+  9: 'SEPTIEMBRE',
+  10: 'OCTUBRE',
+  11: 'NOVIEMBRE',
+  12: 'DICIEMBRE',
+}
+
+function parseDatePartsForTransform(rawValue: string): DateParts | null {
+  const text = String(rawValue || '').replace(/\s+/g, ' ').trim()
+  if (!text) {
+    return null
+  }
+
+  const compact = text.replace(/[.-]/g, '/')
+  let match = compact.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (match) {
+    return {
+      day: Number(match[1]),
+      month: Number(match[2]),
+      year: Number(match[3]),
+    }
+  }
+
+  match = compact.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    return {
+      day: Number(match[3]),
+      month: Number(match[2]),
+      year: Number(match[1]),
+    }
+  }
+
+  match = compact.match(/^(\d{1,2})\/(\d{4})$/)
+  if (match) {
+    return {
+      day: null,
+      month: Number(match[1]),
+      year: Number(match[2]),
+    }
+  }
+
+  match = compact.match(/^(\d{4})$/)
+  if (match) {
+    return {
+      day: null,
+      month: null,
+      year: Number(match[1]),
+    }
+  }
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/,/g, ' ')
+    .replace(/[-/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  match = normalized.match(/^([a-záéíóúñ]+)\s+(\d{4})$/)
+  if (match) {
+    const month = transformSpanishMonths[match[1]]
+    if (!month) {
+      return null
+    }
+    return { day: null, month, year: Number(match[2]) }
+  }
+
+  match = normalized.match(/^(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})$/)
+  if (match) {
+    const month = transformSpanishMonths[match[2]]
+    if (!month) {
+      return null
+    }
+    return { day: Number(match[1]), month, year: Number(match[3]) }
+  }
+
+  return null
+}
+
+function assertDatePartsForOutput(parts: DateParts, output: TemplateFieldTransformDateOutput, fieldKey: string): void {
+  const { day, month, year } = parts
+  if (month !== null && (month < 1 || month > 12)) {
+    throw new Error(`Campo '${fieldKey}': el mes detectado no es valido`)
+  }
+  if (day !== null && (day < 1 || day > 31)) {
+    throw new Error(`Campo '${fieldKey}': el dia detectado no es valido`)
+  }
+  if (output === 'DD' && day === null) {
+    throw new Error(`Campo '${fieldKey}': el formato DD requiere dia`)
+  }
+  if ((output === 'MM' || output === 'MM/YYYY' || output === 'YYYY-MM' || output === 'MMM' || output === 'MMMM') && month === null) {
+    throw new Error(`Campo '${fieldKey}': el formato ${output} requiere mes`)
+  }
+  if ((output === 'YYYY' || output === 'MM/YYYY' || output === 'YYYY-MM') && year === null) {
+    throw new Error(`Campo '${fieldKey}': el formato ${output} requiere año`)
+  }
+}
+
+function formatDateOutput(parts: DateParts, output: TemplateFieldTransformDateOutput): string {
+  const { day, month, year } = parts
+  if (output === 'DD') {
+    return String(day || 0).padStart(2, '0')
+  }
+  if (output === 'MM') {
+    return String(month || 0).padStart(2, '0')
+  }
+  if (output === 'YYYY') {
+    return String(year || 0).padStart(4, '0')
+  }
+  if (output === 'MM/YYYY') {
+    return `${String(month || 0).padStart(2, '0')}/${String(year || 0).padStart(4, '0')}`
+  }
+  if (output === 'YYYY-MM') {
+    return `${String(year || 0).padStart(4, '0')}-${String(month || 0).padStart(2, '0')}`
+  }
+  if (output === 'MMM') {
+    return transformMonthAbbr[month || 0] || ''
+  }
+  return transformMonthFull[month || 0] || ''
+}
+
+function applyTemplateFieldTransformStep(value: string, step: TemplateFieldTransformStepDraft, fieldKey: string): string {
+  const current = String(value || '')
+  if (!current.trim()) {
+    return ''
+  }
+
+  const operation = normalizeTransformOperation(step.operation)
+  if (operation === 'trim') {
+    return current.trim()
+  }
+  if (operation === 'replace') {
+    if (!step.from.trim()) {
+      throw new Error(`Campo '${fieldKey}': replace requiere 'from'`)
+    }
+    return current.split(step.from).join(step.to)
+  }
+  if (operation === 'remove_chars') {
+    if (!step.chars.trim()) {
+      throw new Error(`Campo '${fieldKey}': remove_chars requiere 'chars'`)
+    }
+    const removeSet = new Set(step.chars.split(''))
+    return current
+      .split('')
+      .filter((char) => !removeSet.has(char))
+      .join('')
+  }
+  if (operation === 'split') {
+    if (!step.delimiter.trim()) {
+      throw new Error(`Campo '${fieldKey}': split requiere delimiter`)
+    }
+    const parsedIndex = Number.parseInt(step.index, 10)
+    if (!Number.isFinite(parsedIndex) || parsedIndex < 1) {
+      throw new Error(`Campo '${fieldKey}': split index debe ser >= 1`)
+    }
+    const parts = current.split(step.delimiter)
+    if (parsedIndex > parts.length) {
+      throw new Error(`Campo '${fieldKey}': split index fuera de rango`)
+    }
+    return parts[parsedIndex - 1]
+  }
+  if (operation === 'case') {
+    if (step.mode === 'upper') {
+      return current.toUpperCase()
+    }
+    if (step.mode === 'lower') {
+      return current.toLowerCase()
+    }
+    return current
+      .toLowerCase()
+      .replace(/(^|\s)\S/g, (match) => match.toUpperCase())
+  }
+  if (operation === 'date_format') {
+    const parsed = parseDatePartsForTransform(current)
+    if (!parsed) {
+      throw new Error(`Campo '${fieldKey}': no se pudo parsear fecha`)
+    }
+    assertDatePartsForOutput(parsed, step.output, fieldKey)
+    return formatDateOutput(parsed, step.output)
+  }
+
+  return current
+}
+
+function buildTransformPipelinePreview(
+  value: string | null | undefined,
+  steps: TemplateFieldTransformStepDraft[],
+  fieldKey: string,
+): TransformPipelinePreview {
+  const snapshots = [String(value || '')]
+  let current = snapshots[0]
+  try {
+    for (const step of steps.slice(0, 3)) {
+      current = applyTemplateFieldTransformStep(current, step, fieldKey)
+      snapshots.push(current)
+    }
+    return {
+      snapshots,
+      result: current,
+      error: null,
+    }
+  } catch (error) {
+    return {
+      snapshots,
+      result: current,
+      error: error instanceof Error ? error.message : 'Error de transformacion',
+    }
+  }
+}
+
+function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): TemplateRect {
+  const x1 = clampUnit(Math.min(start.x, end.x))
+  const y1 = clampUnit(Math.min(start.y, end.y))
+  const x2 = clampUnit(Math.max(start.x, end.x))
+  const y2 = clampUnit(Math.max(start.y, end.y))
+  return {
+    page: 1,
+    x: x1,
+    y: y1,
+    w: clampUnit(x2 - x1),
+    h: clampUnit(y2 - y1),
+  }
+}
+
+function rectIntersects(a: TemplateRect, b: TemplateRect): boolean {
+  const ax2 = a.x + a.w
+  const ay2 = a.y + a.h
+  const bx2 = b.x + b.w
+  const by2 = b.y + b.h
+  return a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
+}
+
+function overlapRatioX(a: TemplateRect, b: TemplateRect): number {
+  const left = Math.max(a.x, b.x)
+  const right = Math.min(a.x + a.w, b.x + b.w)
+  if (right <= left) {
+    return 0
+  }
+  const minWidth = Math.max(Math.min(a.w, b.w), 0.0001)
+  return (right - left) / minWidth
+}
+
+function detectTextByRect(tokens: PdfTextToken[], rect: TemplateRect): string {
+  const selected = tokens
+    .filter((token) =>
+      rectIntersects(rect, {
+        page: 1,
+        x: token.x,
+        y: token.y,
+        w: token.w,
+        h: token.h,
+      }),
+    )
+    .sort((a, b) => {
+      const dy = a.y - b.y
+      if (Math.abs(dy) <= 0.008) {
+        return a.x - b.x
+      }
+      return dy
+    })
+
+  if (selected.length === 0) {
+    return ''
+  }
+
+  const lines: string[] = []
+  let currentLine = ''
+  let currentY = selected[0].y
+  for (const token of selected) {
+    if (Math.abs(token.y - currentY) > 0.01) {
+      if (currentLine.trim()) {
+        lines.push(currentLine.trim().replace(/\s+/g, ' '))
+      }
+      currentLine = token.text
+      currentY = token.y
+      continue
+    }
+    currentLine = `${currentLine} ${token.text}`.trim()
+  }
+  if (currentLine.trim()) {
+    lines.push(currentLine.trim().replace(/\s+/g, ' '))
+  }
+  return lines.join('\n').trim()
+}
+
+function suggestLabelByRect(tokens: PdfTextToken[], rect: TemplateRect): string {
+  const centerY = rect.y + rect.h / 2
+  const leftCandidates = tokens
+    .filter((token) => {
+      const tokenCenterY = token.y + token.h / 2
+      return Math.abs(tokenCenterY - centerY) <= 0.02 && token.x + token.w <= rect.x + 0.002
+    })
+    .sort((a, b) => b.x + b.w - (a.x + a.w))
+
+  if (leftCandidates.length > 0) {
+    return leftCandidates[0].text.replace(/[:\-\s]+$/g, '').trim()
+  }
+
+  const aboveCandidates = tokens
+    .filter(
+      (token) =>
+        token.y + token.h <= rect.y + 0.002 &&
+        overlapRatioX(
+          rect,
+          {
+            page: 1,
+            x: token.x,
+            y: token.y,
+            w: token.w,
+            h: token.h,
+          },
+        ) > 0.2,
+    )
+    .sort((a, b) => b.y + b.h - (a.y + a.h))
+
+  if (aboveCandidates.length > 0) {
+    return aboveCandidates[0].text.replace(/[:\-\s]+$/g, '').trim()
+  }
+  return ''
+}
+
+function resolveTemplateMode(template: { template_mode?: TemplateMode; custom_model?: TemplateCustomModel | null }): TemplateMode {
+  if (template.template_mode === 'document' || template.template_mode === 'processing') {
+    return template.template_mode
+  }
+  if (template.custom_model?.mode === 'document') {
+    return 'document'
+  }
+  return 'processing'
+}
+
+function mapDocumentFields(
+  customModel: TemplateCustomModel | null | undefined,
+  fieldTransforms?: TemplateFieldTransformGroup[] | null,
+): TemplateEditorField[] {
+  const result: TemplateEditorField[] = []
+  const transformsByKey = mapFieldTransformsByKey(fieldTransforms)
+  const fields = Array.isArray(customModel?.fields) ? customModel.fields : []
+  for (const item of fields) {
+    const raw = item as Record<string, unknown>
+    if (typeof raw.name !== 'string') {
+      continue
+    }
+    const rectRaw = raw.rect
+    if (!rectRaw || typeof rectRaw !== 'object') {
+      continue
+    }
+    const rectObj = rectRaw as Record<string, unknown>
+    const rect: TemplateRect = {
+      page: 1,
+      x: clampUnit(Number(rectObj.x || 0)),
+      y: clampUnit(Number(rectObj.y || 0)),
+      w: clampUnit(Number(rectObj.w || 0)),
+      h: clampUnit(Number(rectObj.h || 0)),
+    }
+    if (rect.w <= 0 || rect.h <= 0) {
+      continue
+    }
+    const name = raw.name.trim()
+    const key = typeof raw.key === 'string' ? raw.key.trim() : ''
+    const resolvedKey = key || sanitizeFieldKey(name, `field_${result.length + 1}`)
+    result.push({
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : randomId(),
+      key: resolvedKey,
+      name,
+      label: typeof raw.label === 'string' ? raw.label.trim() || null : null,
+      suggestedLabel: typeof raw.suggested_label === 'string' ? raw.suggested_label.trim() || null : null,
+      type:
+        raw.type === 'number' || raw.type === 'date' || raw.type === 'array' || raw.type === 'string'
+          ? raw.type
+          : 'string',
+      rect,
+      detectedValue: typeof raw.detected_value === 'string' ? raw.detected_value : null,
+      sampleValue: typeof raw.sample_value === 'string' ? raw.sample_value : null,
+      required: Boolean(raw.required),
+      transforms: transformsByKey.get(resolvedKey)?.slice(0, 3) || [],
+    })
+  }
+  return result
+}
+
+function mapRuleFieldOptions(
+  customModel: TemplateCustomModel | null | undefined,
+  fieldTransforms?: TemplateFieldTransformGroup[] | null,
+): RuleFieldOption[] {
+  const fields = mapDocumentFields(customModel, fieldTransforms)
+  return fields.map((field) => ({
+    key: field.key,
+    label: field.name || field.label || field.key,
+    required: field.required,
+    previewValue: (() => {
+      const fallback = field.label?.trim() || field.name || field.key
+      const source = field.detectedValue?.trim() || field.sampleValue?.trim() || ''
+      if (!source) {
+        return fallback
+      }
+      const preview = buildTransformPipelinePreview(source, field.transforms, field.key)
+      if (preview.error) {
+        return `${source} [error]`
+      }
+      return preview.result.trim() || fallback
+    })(),
+  }))
+}
+
+function createRulePartDraft(partType: RulePartTypeDraft, fieldKey = '', literalValue = ''): ClassificationRuleNamePartDraft {
+  return {
+    id: randomId(),
+    partType,
+    fieldKey,
+    literalValue,
+    indexKind: 'numeric',
+    indexStartNumeric: '',
+    indexStartAlpha: '',
+    indexDirection: 'incremental',
+  }
+}
+
+function getRuleIndexPreview(part: ClassificationRuleNamePartDraft): string {
+  if (part.indexDirection === 'incremental') {
+    return part.indexKind === 'alphabetic' ? '[A+]' : '[0+]'
+  }
+  if (part.indexKind === 'alphabetic') {
+    const alpha = part.indexStartAlpha.trim().toUpperCase() || '?'
+    return `[${alpha}-]`
+  }
+  const numeric = Number.parseInt(part.indexStartNumeric, 10)
+  const base = Number.isFinite(numeric) ? String(numeric) : '?'
+  return `[${base}-]`
+}
+
+function createRuleNodeDraft(
+  nodeType: 'folder' | 'file',
+  fieldOptions: RuleFieldOption[],
+  conflictPolicy: 'use_existing' | 'create_new' | null = null,
+): ClassificationRuleNodeDraft {
+  const defaultFieldKey = fieldOptions[0]?.key || ''
+  return {
+    id: randomId(),
+    nodeType,
+    conflictPolicy: nodeType === 'folder' ? conflictPolicy || 'use_existing' : null,
+    nameParts: defaultFieldKey
+      ? [createRulePartDraft('field', defaultFieldKey)]
+      : [createRulePartDraft('literal', '', nodeType === 'folder' ? 'Carpeta' : 'Documento')],
+  }
+}
+
+function buildDefaultRuleNodes(fieldOptions: RuleFieldOption[]): ClassificationRuleNodeDraft[] {
+  const folderNode = createRuleNodeDraft('folder', fieldOptions, 'use_existing')
+  const fileNode = createRuleNodeDraft('file', fieldOptions, null)
+  return [folderNode, fileNode]
+}
+
+function mapRuleToDraftNodes(rule: ClassificationRule | null | undefined, fieldOptions: RuleFieldOption[]): ClassificationRuleNodeDraft[] {
+  const nodes = Array.isArray(rule?.nodes) ? [...rule.nodes] : []
+  if (nodes.length === 0) {
+    return buildDefaultRuleNodes(fieldOptions)
+  }
+
+  const mapped: ClassificationRuleNodeDraft[] = nodes
+    .sort((a, b) => (a.node_order || 0) - (b.node_order || 0))
+    .map((node) => {
+      const nodeType = node.node_type === 'folder' ? 'folder' : 'file'
+      const parts = Array.isArray(node.name_parts) ? [...node.name_parts] : []
+      const mappedParts: ClassificationRuleNamePartDraft[] = parts
+        .sort((a, b) => (a.part_order || 0) - (b.part_order || 0))
+        .map((part) => ({
+          id: part.part_id || randomId(),
+          partType:
+            part.part_type === 'index'
+              ? 'index'
+              : part.part_type === 'literal'
+                ? (part.literal_value || '') === ' '
+                  ? 'space'
+                  : 'literal'
+                : 'field',
+          fieldKey: typeof part.field_key === 'string' ? part.field_key : '',
+          literalValue: typeof part.literal_value === 'string' ? part.literal_value : '',
+          indexKind: part.index_kind === 'alphabetic' ? 'alphabetic' : 'numeric',
+          indexStartNumeric:
+            typeof part.index_start_numeric === 'number' && Number.isFinite(part.index_start_numeric)
+              ? String(part.index_start_numeric)
+              : '',
+          indexStartAlpha:
+            typeof part.index_start_alpha === 'string' && /^[A-Za-z]$/.test(part.index_start_alpha.trim())
+              ? part.index_start_alpha.trim().toUpperCase()
+              : '',
+          indexDirection: part.index_direction === 'decremental' ? 'decremental' : 'incremental',
+        }))
+
+      return {
+        id: node.node_id || randomId(),
+        nodeType,
+        conflictPolicy:
+          nodeType === 'folder' && (node.conflict_policy === 'create_new' || node.conflict_policy === 'use_existing')
+            ? node.conflict_policy
+            : nodeType === 'folder'
+              ? 'use_existing'
+              : null,
+        nameParts: mappedParts.length > 0 ? mappedParts : [createRulePartDraft('literal', '', nodeType === 'folder' ? 'Carpeta' : 'Documento')],
+      }
+    })
+
+  const folderNodes = mapped.filter((node) => node.nodeType === 'folder')
+  const fileNodes = mapped.filter((node) => node.nodeType === 'file')
+  const fileNode = fileNodes[fileNodes.length - 1] || createRuleNodeDraft('file', fieldOptions, null)
+  return [...folderNodes, fileNode]
+}
+
+function buildClassificationRulePayload(nodes: ClassificationRuleNodeDraft[]): ClassificationRulePayload {
+  return {
+    nodes: nodes.map((node, index) => ({
+      node_type: index === nodes.length - 1 ? 'file' : 'folder',
+      conflict_policy: index === nodes.length - 1 ? null : node.conflictPolicy || 'use_existing',
+      name_parts: node.nameParts.map((part) => ({
+        part_type: part.partType === 'space' ? 'literal' : part.partType,
+        field_key: part.partType === 'field' ? part.fieldKey.trim() || null : null,
+        literal_value: part.partType === 'space' ? ' ' : part.partType === 'literal' ? part.literalValue.trim() : null,
+        index_kind: part.partType === 'index' ? part.indexKind : null,
+        index_start_numeric:
+          part.partType === 'index' && part.indexKind === 'numeric' && part.indexDirection === 'decremental'
+            ? Number.parseInt(part.indexStartNumeric, 10)
+            : null,
+        index_start_alpha:
+          part.partType === 'index' && part.indexKind === 'alphabetic' && part.indexDirection === 'decremental'
+            ? part.indexStartAlpha.trim().toUpperCase()
+            : null,
+        index_direction: part.partType === 'index' ? part.indexDirection : null,
+      })),
+    })),
+  }
+}
+
+function resolveRuleFieldPreviewValue(fieldKey: string, fieldOptions: RuleFieldOption[]): string {
+  const found = fieldOptions.find((field) => field.key === fieldKey)
+  if (!found) {
+    return `{${fieldKey}}`
+  }
+  return found.previewValue || `{${fieldKey}}`
+}
+
+function buildRuleNodePreview(node: ClassificationRuleNodeDraft, fieldOptions: RuleFieldOption[]): string {
+  const text = node.nameParts
+    .map((part) => {
+      if (part.partType === 'space') {
+        return ' '
+      }
+      if (part.partType === 'field') {
+        return resolveRuleFieldPreviewValue(part.fieldKey, fieldOptions)
+      }
+      if (part.partType === 'index') {
+        return getRuleIndexPreview(part)
+      }
+      return part.literalValue
+    })
+    .join('')
+  const compact = text.replace(/\s+/g, ' ').trim()
+  return compact || '(vacio)'
+}
+
+function resolveRuleStatusLabel(status: RuleStatus | undefined): string {
+  if (status === 'ready') {
+    return 'Regla lista'
+  }
+  if (status === 'invalid') {
+    return 'Regla invalida'
+  }
+  return 'Sin regla'
+}
+
+async function fetchPdfBlob(url: string): Promise<Blob> {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar el PDF (${response.status}).`)
+  }
+  const blob = await response.blob()
+  if (blob.size === 0) {
+    throw new Error('El PDF esta vacio.')
+  }
+  return blob
+}
+
+async function buildPdfPreviewFromBlob(blob: Blob): Promise<{
+  previewImageDataUrl: string
+  pageSize: { width: number; height: number }
+  textTokens: PdfTextToken[]
+}> {
+  const data = await blob.arrayBuffer()
+  const task = getDocument({ data })
+  let pdf: Awaited<typeof task.promise> | null = null
+  try {
+    pdf = await task.promise
+    const page = await pdf.getPage(1)
+    const viewport = page.getViewport({ scale: 1 })
+    const renderScale = Math.max(1.2, Math.min(2.2, 1500 / Math.max(viewport.width, 1)))
+    const renderViewport = page.getViewport({ scale: renderScale })
+
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(renderViewport.width)
+    canvas.height = Math.ceil(renderViewport.height)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('No se pudo crear el canvas para el PDF.')
+    }
+    await page.render({ canvasContext: ctx, viewport: renderViewport }).promise
+    const previewImageDataUrl = canvas.toDataURL('image/png')
+
+    const textContent = await page.getTextContent()
+    const textTokens: PdfTextToken[] = []
+    for (const rawItem of textContent.items as Array<Record<string, unknown>>) {
+      const text = typeof rawItem.str === 'string' ? rawItem.str.trim() : ''
+      const transform = Array.isArray(rawItem.transform) ? rawItem.transform : null
+      const width = typeof rawItem.width === 'number' ? rawItem.width : 0
+      const baseHeight =
+        typeof rawItem.height === 'number'
+          ? rawItem.height
+          : transform && typeof transform[0] === 'number'
+            ? Number(transform[0])
+            : 0
+      if (!text || !transform || transform.length < 6 || width <= 0) {
+        continue
+      }
+      const tokenHeight = Math.max(Math.abs(baseHeight), 1)
+      const x = Number(transform[4] || 0)
+      const yBottom = Number(transform[5] || 0)
+      const yTop = viewport.height - yBottom - tokenHeight
+      const token: PdfTextToken = {
+        text,
+        x: clampUnit(x / viewport.width),
+        y: clampUnit(yTop / viewport.height),
+        w: clampUnit(width / viewport.width),
+        h: clampUnit(tokenHeight / viewport.height),
+      }
+      if (token.w > 0 && token.h > 0) {
+        textTokens.push(token)
+      }
+    }
+
+    return {
+      previewImageDataUrl,
+      pageSize: {
+        width: viewport.width,
+        height: viewport.height,
+      },
+      textTokens,
+    }
+  } catch (error) {
+    console.error('[templates] Error al cargar preview PDF', error)
+    if (isPdfWorkerLoadError(error)) {
+      throw new Error(pdfWorkerLoadErrorMessage)
+    }
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error('No se pudo procesar el PDF seleccionado.')
+  } finally {
+    if (pdf) {
+      await pdf.destroy()
+    } else {
+      task.destroy()
+    }
+  }
+}
+
 function BackofficeApp() {
   const environmentChip = getEnvironmentChip()
   const [tenantId, setTenantId] = useState<string>(() => {
     if (typeof window === 'undefined') {
       return defaultTenant
     }
-    const saved = window.localStorage.getItem(tenantStorageKey)?.trim()
+    const saved = normalizeTenantId(window.localStorage.getItem(tenantStorageKey))
     return saved || defaultTenant
   })
   const [activeSection, setActiveSection] = useState<Section>(() => {
@@ -345,6 +1405,9 @@ function BackofficeApp() {
   const [pendingFiles, setPendingFiles] = useState<DriveFile[]>([])
   const [processLoading, setProcessLoading] = useState(false)
   const [processError, setProcessError] = useState('')
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>('default')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [showProcessModeModal, setShowProcessModeModal] = useState(false)
   const [refreshingProcessId, setRefreshingProcessId] = useState<string | null>(null)
   const [processItems, setProcessItems] = useState<ProcessItem[]>([])
   const [selectedProcess, setSelectedProcess] = useState<ProcessItem | null>(null)
@@ -379,6 +1442,32 @@ function BackofficeApp() {
   const [adoptingReciboxFolder, setAdoptingReciboxFolder] = useState(false)
   const [showStorageConfirmModal, setShowStorageConfirmModal] = useState(false)
   const [pendingStorageAction, setPendingStorageAction] = useState<PendingStorageAction | null>(null)
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templateDraftLoading, setTemplateDraftLoading] = useState(false)
+  const [templateSaving, setTemplateSaving] = useState(false)
+  const [templateActionLoadingId, setTemplateActionLoadingId] = useState<string | null>(null)
+  const [templateError, setTemplateError] = useState('')
+  const [templateSuccess, setTemplateSuccess] = useState('')
+  const [templates, setTemplates] = useState<TemplateSummary[]>([])
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
+  const [selectedDraftFileId, setSelectedDraftFileId] = useState('')
+  const [uploadedTemplateFile, setUploadedTemplateFile] = useState<File | null>(null)
+  const [showTemplateEditorModal, setShowTemplateEditorModal] = useState(false)
+  const [templateEditor, setTemplateEditor] = useState<TemplateEditorState>(createEmptyTemplateEditor)
+  const [templateFieldDraft, setTemplateFieldDraft] = useState<TemplateFieldDraftForm>(createEmptyTemplateFieldDraft)
+  const [templatePendingRect, setTemplatePendingRect] = useState<TemplateRect | null>(null)
+  const [templateDrawingStart, setTemplateDrawingStart] = useState<{ x: number; y: number } | null>(null)
+  const [templateHoveredFieldId, setTemplateHoveredFieldId] = useState<string | null>(null)
+  const [showClassificationRuleModal, setShowClassificationRuleModal] = useState(false)
+  const [classificationRuleMandatory, setClassificationRuleMandatory] = useState(false)
+  const [classificationRuleLoading, setClassificationRuleLoading] = useState(false)
+  const [classificationRuleSaving, setClassificationRuleSaving] = useState(false)
+  const [classificationRuleTemplateId, setClassificationRuleTemplateId] = useState('')
+  const [classificationRuleTemplateName, setClassificationRuleTemplateName] = useState('')
+  const [classificationRuleFieldOptions, setClassificationRuleFieldOptions] = useState<RuleFieldOption[]>([])
+  const [classificationRuleNodes, setClassificationRuleNodes] = useState<ClassificationRuleNodeDraft[]>([])
+  const [classificationRuleError, setClassificationRuleError] = useState('')
+  const [classificationRuleSuccess, setClassificationRuleSuccess] = useState('')
   const [processingPreferencesLoading, setProcessingPreferencesLoading] = useState(false)
   const [processingPreferencesSaving, setProcessingPreferencesSaving] = useState(false)
   const [processingPreferencesError, setProcessingPreferencesError] = useState('')
@@ -409,6 +1498,8 @@ function BackofficeApp() {
     return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
   })
   const profilePopoverRef = useRef<HTMLDivElement | null>(null)
+  const templateCanvasRef = useRef<HTMLDivElement | null>(null)
+  const templateUploadInputRef = useRef<HTMLInputElement | null>(null)
 
   const syncTenantDriveConfig = useCallback(
     async (inputFolderId: string, rootFolderId: string, reciboxFolderId: string, targetTenantId = tenantId) => {
@@ -485,7 +1576,7 @@ function BackofficeApp() {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.setItem(tenantStorageKey, tenantId)
+    window.localStorage.setItem(tenantStorageKey, normalizeTenantId(tenantId) || defaultTenant)
   }, [tenantId])
 
   useEffect(() => {
@@ -670,6 +1761,703 @@ function BackofficeApp() {
     }
   }, [tenantId])
 
+  const loadTemplatesForTenant = useCallback(
+    async (includeInactive = true) => {
+      setTemplatesLoading(true)
+      setTemplateError('')
+      const response = await listTemplates(tenantId, includeInactive)
+      setTemplatesLoading(false)
+      if (!response.ok || !response.data) {
+        setTemplates([])
+        setTemplateError(response.error || 'No se pudieron cargar las plantillas.')
+        return
+      }
+      setTemplates(response.data.templates || [])
+    },
+    [tenantId],
+  )
+
+  const resetTemplateEditor = useCallback(() => {
+    setEditingTemplateId(null)
+    setSelectedDraftFileId('')
+    setUploadedTemplateFile(null)
+    setTemplateEditor(createEmptyTemplateEditor())
+    setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+    setTemplatePendingRect(null)
+    setTemplateDrawingStart(null)
+    setTemplateHoveredFieldId(null)
+    setShowTemplateEditorModal(false)
+    setTemplateError('')
+  }, [])
+
+  const createTemplateDraft = useCallback(async () => {
+    let sourceBlob: Blob | null = null
+    let sourceFileId = ''
+    let sourceFileName = ''
+
+    if (templateLocalUploadEnabled && uploadedTemplateFile) {
+      sourceBlob = uploadedTemplateFile
+      sourceFileName = uploadedTemplateFile.name
+    } else if (selectedDraftFileId) {
+      const selectedFile = pendingFiles.find((file) => file.id === selectedDraftFileId)
+      if (!selectedFile) {
+        setTemplateError('No se encontró el archivo seleccionado en INPUT.')
+        return
+      }
+      sourceFileId = selectedFile.id
+      sourceFileName = selectedFile.name
+      try {
+        sourceBlob = await fetchPdfBlob(buildDrivePdfDownloadUrl(tenantId, selectedFile.id))
+      } catch (error) {
+        setTemplateError(error instanceof Error ? error.message : 'No se pudo descargar el PDF desde Drive.')
+        return
+      }
+    }
+
+    if (!sourceBlob) {
+      setTemplateError(
+        templateLocalUploadEnabled
+          ? 'Selecciona un PDF desde INPUT o sube un archivo modelo.'
+          : 'Selecciona un PDF desde INPUT.',
+      )
+      return
+    }
+
+    setTemplateDraftLoading(true)
+    setTemplateError('')
+    setTemplateSuccess('')
+    try {
+      const preview = await buildPdfPreviewFromBlob(sourceBlob)
+      setEditingTemplateId(null)
+      setTemplateEditor({
+        name: buildTemplateNameFromFile(sourceFileName || 'Nueva plantilla'),
+        description: '',
+        isActive: true,
+        sourcePdfBlob: sourceBlob,
+        previewImageDataUrl: preview.previewImageDataUrl,
+        pageSize: preview.pageSize,
+        textTokens: preview.textTokens,
+        fields: [],
+        sampleFileId: sourceFileId,
+        sampleFileName: sourceFileName,
+      })
+      setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+      setTemplatePendingRect(null)
+      setTemplateDrawingStart(null)
+      setTemplateHoveredFieldId(null)
+      setShowTemplateEditorModal(true)
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'No se pudo procesar el PDF seleccionado.')
+    } finally {
+      setTemplateDraftLoading(false)
+    }
+  }, [pendingFiles, selectedDraftFileId, tenantId, uploadedTemplateFile])
+
+  const loadTemplateIntoEditor = useCallback(
+    async (templateId: string) => {
+      setTemplateActionLoadingId(templateId)
+      setTemplateError('')
+      setTemplateSuccess('')
+      const response = await getTemplate(tenantId, templateId)
+      if (!response.ok || !response.data) {
+        setTemplateActionLoadingId(null)
+        setTemplateError(response.error || 'No se pudo cargar la plantilla.')
+        return
+      }
+
+      if (resolveTemplateMode(response.data) !== 'document') {
+        setTemplateActionLoadingId(null)
+        setTemplateError('Esta plantilla pertenece al flujo legado y no se edita desde el nuevo ABM.')
+        return
+      }
+
+      const sample = response.data.sample_file_metadata || {}
+      const sampleFileId = typeof sample.file_id === 'string' ? sample.file_id : ''
+      const sampleFileName = typeof sample.file_name === 'string' ? sample.file_name : response.data.name
+
+      try {
+        let sourceBlob: Blob
+        try {
+          sourceBlob = await fetchPdfBlob(buildTemplateSourcePdfUrl(tenantId, templateId))
+        } catch {
+          if (!sampleFileId) {
+            throw new Error('No hay PDF fuente asociado a la plantilla.')
+          }
+          sourceBlob = await fetchPdfBlob(buildDrivePdfDownloadUrl(tenantId, sampleFileId))
+        }
+
+        const preview = await buildPdfPreviewFromBlob(sourceBlob)
+        setEditingTemplateId(templateId)
+        setTemplateEditor({
+          name: response.data.name,
+          description: response.data.description || '',
+          isActive: response.data.is_active,
+          sourcePdfBlob: sourceBlob,
+          previewImageDataUrl: preview.previewImageDataUrl,
+          pageSize: preview.pageSize,
+          textTokens: preview.textTokens,
+          fields: mapDocumentFields(response.data.custom_model, response.data.field_transforms),
+          sampleFileId,
+          sampleFileName,
+        })
+        setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+        setTemplatePendingRect(null)
+        setTemplateDrawingStart(null)
+        setTemplateHoveredFieldId(null)
+        setShowTemplateEditorModal(true)
+      } catch (error) {
+        setTemplateError(error instanceof Error ? error.message : 'No se pudo cargar el PDF de la plantilla.')
+      } finally {
+        setTemplateActionLoadingId(null)
+      }
+    },
+    [tenantId],
+  )
+
+  const resetClassificationRuleEditor = useCallback(() => {
+    setShowClassificationRuleModal(false)
+    setClassificationRuleMandatory(false)
+    setClassificationRuleLoading(false)
+    setClassificationRuleSaving(false)
+    setClassificationRuleTemplateId('')
+    setClassificationRuleTemplateName('')
+    setClassificationRuleFieldOptions([])
+    setClassificationRuleNodes([])
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [])
+
+  const openClassificationRuleEditor = useCallback(
+    async (templateId: string, mandatory = false) => {
+      if (!templateId) {
+        return
+      }
+      setClassificationRuleLoading(true)
+      setClassificationRuleSaving(false)
+      setClassificationRuleTemplateId(templateId)
+      setClassificationRuleError('')
+      setClassificationRuleSuccess('')
+      setClassificationRuleMandatory(mandatory)
+      setShowClassificationRuleModal(true)
+
+      const [templateResponse, ruleResponse] = await Promise.all([
+        getTemplate(tenantId, templateId),
+        getTemplateClassificationRule(tenantId, templateId),
+      ])
+      setClassificationRuleLoading(false)
+
+      if (!templateResponse.ok || !templateResponse.data) {
+        setClassificationRuleError(templateResponse.error || 'No se pudo cargar la plantilla para editar la regla.')
+        setClassificationRuleFieldOptions([])
+        setClassificationRuleNodes([])
+        return
+      }
+
+      if (resolveTemplateMode(templateResponse.data) !== 'document') {
+        setClassificationRuleError('Solo las plantillas ABM de documentos admiten reglas de clasificacion.')
+        setClassificationRuleFieldOptions([])
+        setClassificationRuleNodes([])
+        return
+      }
+
+      const fieldOptions = mapRuleFieldOptions(templateResponse.data.custom_model, templateResponse.data.field_transforms)
+      setClassificationRuleTemplateName(templateResponse.data.name)
+      setClassificationRuleFieldOptions(fieldOptions)
+
+      if (!ruleResponse.ok && ruleResponse.status !== 404) {
+        setClassificationRuleError(ruleResponse.error || 'No se pudo cargar la regla de clasificacion.')
+        setClassificationRuleNodes(buildDefaultRuleNodes(fieldOptions))
+        return
+      }
+
+      const existingRule = (ruleResponse.ok ? ruleResponse.data?.classification_rule : null) || templateResponse.data.classification_rule
+      setClassificationRuleNodes(mapRuleToDraftNodes(existingRule || null, fieldOptions))
+      if (ruleResponse.ok && ruleResponse.data?.rule_status === 'invalid') {
+        setClassificationRuleError('La regla actual es invalida. Revisala y volve a guardarla.')
+      }
+    },
+    [tenantId],
+  )
+
+  const addClassificationRuleFolderNode = useCallback(() => {
+    setClassificationRuleNodes((prev) => {
+      const folder = createRuleNodeDraft('folder', classificationRuleFieldOptions, 'use_existing')
+      if (prev.length === 0) {
+        return [folder, createRuleNodeDraft('file', classificationRuleFieldOptions, null)]
+      }
+      const next = [...prev]
+      next.splice(Math.max(next.length - 1, 0), 0, folder)
+      return next
+    })
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [classificationRuleFieldOptions])
+
+  const removeClassificationRuleFolderNode = useCallback((nodeId: string) => {
+    setClassificationRuleNodes((prev) => {
+      const next = prev.filter((node) => !(node.id === nodeId && node.nodeType === 'folder'))
+      const fileNode = next.find((node) => node.nodeType === 'file')
+      if (!fileNode) {
+        next.push(createRuleNodeDraft('file', classificationRuleFieldOptions, null))
+      }
+      return next
+    })
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [classificationRuleFieldOptions])
+
+  const addClassificationRuleNamePart = useCallback((nodeId: string, partType: RulePartTypeDraft) => {
+    setClassificationRuleNodes((prev) =>
+      prev.map((node) => {
+        if (node.id !== nodeId) {
+          return node
+        }
+        const defaultField = classificationRuleFieldOptions[0]?.key || ''
+        return {
+          ...node,
+          nameParts: [
+            ...node.nameParts,
+            partType === 'field'
+              ? createRulePartDraft('field', defaultField)
+              : partType === 'index'
+                ? createRulePartDraft('index')
+              : partType === 'space'
+                ? createRulePartDraft('space', '', ' ')
+                : createRulePartDraft('literal', '', ''),
+          ],
+        }
+      }),
+    )
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [classificationRuleFieldOptions])
+
+  const updateClassificationRuleNodePolicy = useCallback((nodeId: string, nextPolicy: 'use_existing' | 'create_new') => {
+    setClassificationRuleNodes((prev) =>
+      prev.map((node) => (node.id === nodeId && node.nodeType === 'folder' ? { ...node, conflictPolicy: nextPolicy } : node)),
+    )
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [])
+
+  const updateClassificationRuleNamePart = useCallback(
+    (nodeId: string, partId: string, updater: (part: ClassificationRuleNamePartDraft) => ClassificationRuleNamePartDraft) => {
+      setClassificationRuleNodes((prev) =>
+        prev.map((node) => {
+          if (node.id !== nodeId) {
+            return node
+          }
+          return {
+            ...node,
+            nameParts: node.nameParts.map((part) => (part.id === partId ? updater(part) : part)),
+          }
+        }),
+      )
+      setClassificationRuleError('')
+      setClassificationRuleSuccess('')
+    },
+    [],
+  )
+
+  const removeClassificationRuleNamePart = useCallback((nodeId: string, partId: string) => {
+    setClassificationRuleNodes((prev) =>
+      prev.map((node) => {
+        if (node.id !== nodeId) {
+          return node
+        }
+        const filtered = node.nameParts.filter((part) => part.id !== partId)
+        return {
+          ...node,
+          nameParts: filtered.length > 0 ? filtered : [createRulePartDraft('literal', '', node.nodeType === 'folder' ? 'Carpeta' : 'Documento')],
+        }
+      }),
+    )
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [])
+
+  const saveClassificationRuleEditor = useCallback(async () => {
+    const templateId = classificationRuleTemplateId.trim()
+    if (!templateId) {
+      setClassificationRuleError('No se pudo resolver la plantilla de la regla.')
+      return
+    }
+
+    if (classificationRuleNodes.length === 0) {
+      setClassificationRuleError('Agrega al menos un nodo de carpeta y un nodo de archivo.')
+      return
+    }
+
+    for (let nodeIndex = 0; nodeIndex < classificationRuleNodes.length; nodeIndex += 1) {
+      const node = classificationRuleNodes[nodeIndex]
+      const shouldBeFolder = nodeIndex < classificationRuleNodes.length - 1
+      if (shouldBeFolder && node.nodeType !== 'folder') {
+        setClassificationRuleError('Todos los nodos intermedios deben ser carpetas.')
+        return
+      }
+      if (!shouldBeFolder && node.nodeType !== 'file') {
+        setClassificationRuleError('El ultimo nodo debe ser un archivo.')
+        return
+      }
+      if (node.nameParts.length === 0) {
+        setClassificationRuleError('Cada nodo debe tener al menos una parte de nombre.')
+        return
+      }
+      for (const part of node.nameParts) {
+        if (part.partType === 'field') {
+          if (!part.fieldKey.trim()) {
+            setClassificationRuleError('Todos los chips de campo deben seleccionar un campo.')
+            return
+          }
+        } else if (part.partType === 'index') {
+          if (part.indexDirection === 'decremental') {
+            if (part.indexKind === 'numeric') {
+              const numericStart = Number.parseInt(part.indexStartNumeric, 10)
+              if (!Number.isFinite(numericStart) || numericStart < 0 || numericStart > 9999) {
+                setClassificationRuleError('En indice decremental numerico, el inicio debe estar entre 0 y 9999.')
+                return
+              }
+            } else {
+              const alphaStart = part.indexStartAlpha.trim().toUpperCase()
+              if (!/^[A-Z]$/.test(alphaStart)) {
+                setClassificationRuleError('En indice decremental alfabetico, el inicio debe ser una letra entre A y Z.')
+                return
+              }
+            }
+          }
+        } else if (part.partType === 'literal') {
+          const literal = part.literalValue.trim()
+          if (!literal) {
+            setClassificationRuleError('Las partes literales no pueden estar vacias.')
+            return
+          }
+          if (!/^[a-z0-9 #$%&/()@._,-]+$/i.test(literal)) {
+            setClassificationRuleError('Los literales admiten alfanumericos, espacios y #$%&/()@._,-.')
+            return
+          }
+        }
+      }
+    }
+
+    setClassificationRuleSaving(true)
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+    const payload: ClassificationRulePayload = buildClassificationRulePayload(classificationRuleNodes)
+    const response = await putTemplateClassificationRule(tenantId, templateId, payload)
+    setClassificationRuleSaving(false)
+    if (!response.ok || !response.data) {
+      setClassificationRuleError(response.error || 'No se pudo guardar la regla de clasificacion.')
+      return
+    }
+
+    setClassificationRuleSuccess('Regla de clasificacion guardada.')
+    await loadTemplatesForTenant(true)
+    resetClassificationRuleEditor()
+  }, [classificationRuleNodes, classificationRuleTemplateId, loadTemplatesForTenant, resetClassificationRuleEditor, tenantId])
+
+  const closeClassificationRuleEditor = useCallback(() => {
+    if (classificationRuleMandatory) {
+      setTemplateSuccess('La plantilla quedó guardada pero no podra usarse en Procesar hasta completar su regla.')
+    }
+    resetClassificationRuleEditor()
+  }, [classificationRuleMandatory, resetClassificationRuleEditor])
+
+  const saveTemplateEditor = useCallback(async () => {
+    if (!templateEditor.name.trim()) {
+      setTemplateError('El nombre de la plantilla es obligatorio.')
+      return
+    }
+    if (!templateEditor.sourcePdfBlob) {
+      setTemplateError('Selecciona un PDF base para la plantilla.')
+      return
+    }
+    if (templateEditor.fields.length === 0) {
+      setTemplateError('Agrega al menos un campo dibujando zonas en el PDF.')
+      return
+    }
+    setTemplateSaving(true)
+    setTemplateError('')
+    setTemplateSuccess('')
+    const isNewTemplate = !editingTemplateId
+
+    const mappedFields: DocumentTemplateField[] = templateEditor.fields.map((field) => ({
+      id: field.id,
+      key: field.key,
+      name: field.name,
+      label: field.label,
+      suggested_label: field.suggestedLabel,
+      type: field.type,
+      rect: field.rect,
+      detected_value: field.detectedValue,
+      sample_value: field.sampleValue,
+      required: field.required,
+    }))
+
+    const fieldTransforms = serializeTemplateFieldTransforms(templateEditor.fields)
+
+    const payload = {
+      name: templateEditor.name.trim(),
+      description: templateEditor.description.trim() || null,
+      is_active: templateEditor.isActive,
+      original_model: {
+        schema_version: '2',
+        sample: {
+          file_id: templateEditor.sampleFileId || null,
+          file_name: templateEditor.sampleFileName || `${templateEditor.name.trim()}.pdf`,
+        },
+        page_size: templateEditor.pageSize,
+        fields: [],
+      },
+      custom_model: {
+        mode: 'document' as const,
+        fields: mappedFields,
+      },
+      sample_file_metadata: {
+        file_id: templateEditor.sampleFileId || null,
+        file_name: templateEditor.sampleFileName || `${templateEditor.name.trim()}.pdf`,
+        source_kind: templateEditor.sampleFileId ? 'drive' : 'upload',
+      },
+      field_transforms: fieldTransforms,
+    }
+    const response = editingTemplateId
+      ? await updateTemplate(tenantId, editingTemplateId, payload)
+      : await createTemplate(tenantId, payload)
+    if (!response.ok || !response.data) {
+      setTemplateSaving(false)
+      setTemplateError(response.error || 'No se pudo guardar la plantilla.')
+      return
+    }
+
+    const uploadResponse = await uploadTemplateSourcePdf(
+      tenantId,
+      response.data.template_id,
+      templateEditor.sourcePdfBlob,
+      templateEditor.sampleFileName || `${templateEditor.name.trim()}.pdf`,
+    )
+    setTemplateSaving(false)
+    if (!uploadResponse.ok) {
+      setTemplateError(uploadResponse.error || 'La plantilla se guardó pero no se pudo asociar el PDF fuente.')
+      await loadTemplatesForTenant(true)
+      return
+    }
+
+    setTemplateSuccess('Plantilla guardada.')
+    await loadTemplatesForTenant(true)
+    setShowTemplateEditorModal(false)
+    setEditingTemplateId(null)
+    setTemplateEditor(createEmptyTemplateEditor())
+    setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+    setTemplatePendingRect(null)
+    setTemplateDrawingStart(null)
+    setSelectedDraftFileId('')
+    setUploadedTemplateFile(null)
+    if (isNewTemplate) {
+      await openClassificationRuleEditor(response.data.template_id, true)
+    }
+  }, [editingTemplateId, loadTemplatesForTenant, openClassificationRuleEditor, templateEditor, tenantId])
+
+  const removeTemplate = useCallback(
+    async (templateId: string) => {
+      setTemplateActionLoadingId(templateId)
+      setTemplateError('')
+      setTemplateSuccess('')
+      const response = await deleteTemplate(tenantId, templateId)
+      setTemplateActionLoadingId(null)
+      if (!response.ok) {
+        setTemplateError(response.error || 'No se pudo eliminar la plantilla.')
+        return
+      }
+      if (editingTemplateId === templateId) {
+        resetTemplateEditor()
+      }
+      if (selectedTemplateId === templateId) {
+        setSelectedTemplateId('')
+      }
+      setTemplateSuccess('Plantilla eliminada.')
+      await loadTemplatesForTenant(true)
+    },
+    [editingTemplateId, loadTemplatesForTenant, resetTemplateEditor, selectedTemplateId, tenantId],
+  )
+
+  const addTemplateFieldTransformStep = useCallback((fieldId: string) => {
+    setTemplateEditor((prev) => ({
+      ...prev,
+      fields: prev.fields.map((field) => {
+        if (field.id !== fieldId) {
+          return field
+        }
+        if (field.transforms.length >= 3) {
+          return field
+        }
+        return {
+          ...field,
+          transforms: [...field.transforms, createTransformStepDraft('trim')],
+        }
+      }),
+    }))
+    setTemplateError('')
+    setTemplateSuccess('')
+  }, [])
+
+  const updateTemplateFieldTransformStep = useCallback(
+    (
+      fieldId: string,
+      stepId: string,
+      updater: (step: TemplateFieldTransformStepDraft) => TemplateFieldTransformStepDraft,
+    ) => {
+      setTemplateEditor((prev) => ({
+        ...prev,
+        fields: prev.fields.map((field) => {
+          if (field.id !== fieldId) {
+            return field
+          }
+          return {
+            ...field,
+            transforms: field.transforms.map((step) => (step.id === stepId ? updater(step) : step)),
+          }
+        }),
+      }))
+      setTemplateError('')
+      setTemplateSuccess('')
+    },
+    [],
+  )
+
+  const removeTemplateFieldTransformStep = useCallback((fieldId: string, stepId: string) => {
+    setTemplateEditor((prev) => ({
+      ...prev,
+      fields: prev.fields.map((field) => {
+        if (field.id !== fieldId) {
+          return field
+        }
+        return {
+          ...field,
+          transforms: field.transforms.filter((step) => step.id !== stepId),
+        }
+      }),
+    }))
+    setTemplateError('')
+    setTemplateSuccess('')
+  }, [])
+
+  const addFieldToTemplate = useCallback(() => {
+    if (!templatePendingRect) {
+      setTemplateError('Dibuja una zona sobre el PDF antes de agregar el campo.')
+      return
+    }
+    const fieldName = templateFieldDraft.name.trim()
+    if (!fieldName) {
+      setTemplateError('El campo es obligatorio.')
+      return
+    }
+
+    setTemplateEditor((prev) => ({
+      ...prev,
+      fields: [
+        ...prev.fields,
+        {
+          id: randomId(),
+          key: sanitizeFieldKey(fieldName, `field_${prev.fields.length + 1}`),
+          name: fieldName,
+          label: templateFieldDraft.label.trim() || null,
+          suggestedLabel: templateFieldDraft.suggestedLabel.trim() || null,
+          type: templateFieldDraft.type,
+          rect: templatePendingRect,
+          detectedValue: templateFieldDraft.detectedValue.trim() || null,
+          sampleValue: templateFieldDraft.detectedValue.trim() || null,
+          required: templateFieldDraft.required,
+          transforms: [],
+        },
+      ],
+    }))
+    setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+    setTemplatePendingRect(null)
+    setTemplateError('')
+    setTemplateSuccess('')
+  }, [templateFieldDraft, templatePendingRect])
+
+  const removeTemplateFieldFromEditor = useCallback((fieldId: string) => {
+    setTemplateEditor((prev) => ({
+      ...prev,
+      fields: prev.fields.filter((field) => field.id !== fieldId),
+    }))
+    setTemplateError('')
+    setTemplateSuccess('')
+  }, [])
+
+  const toCanvasRelativePoint = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    return {
+      x: clampUnit((event.clientX - bounds.left) / Math.max(bounds.width, 1)),
+      y: clampUnit((event.clientY - bounds.top) / Math.max(bounds.height, 1)),
+    }
+  }, [])
+
+  const finalizePendingRect = useCallback(
+    (nextRect: TemplateRect | null) => {
+      if (!nextRect || nextRect.w < 0.004 || nextRect.h < 0.004) {
+        setTemplatePendingRect(null)
+        setTemplateFieldDraft(createEmptyTemplateFieldDraft())
+        return
+      }
+      const detected = detectTextByRect(templateEditor.textTokens, nextRect)
+      const suggested = suggestLabelByRect(templateEditor.textTokens, nextRect)
+      setTemplatePendingRect(nextRect)
+      setTemplateFieldDraft({
+        name: suggested || '',
+        label: '',
+        type: 'string',
+        detectedValue: detected,
+        suggestedLabel: suggested,
+        required: false,
+      })
+      setTemplateError('')
+    },
+    [templateEditor.textTokens],
+  )
+
+  const startTemplateDrawing = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!templateEditor.previewImageDataUrl) {
+        return
+      }
+      const point = toCanvasRelativePoint(event)
+      setTemplateDrawingStart(point)
+      setTemplatePendingRect({
+        page: 1,
+        x: point.x,
+        y: point.y,
+        w: 0,
+        h: 0,
+      })
+    },
+    [templateEditor.previewImageDataUrl, toCanvasRelativePoint],
+  )
+
+  const moveTemplateDrawing = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!templateDrawingStart) {
+        return
+      }
+      const point = toCanvasRelativePoint(event)
+      setTemplatePendingRect(normalizeRect(templateDrawingStart, point))
+    },
+    [templateDrawingStart, toCanvasRelativePoint],
+  )
+
+  const endTemplateDrawing = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!templateDrawingStart) {
+        return
+      }
+      const point = toCanvasRelativePoint(event)
+      const rect = normalizeRect(templateDrawingStart, point)
+      setTemplateDrawingStart(null)
+      finalizePendingRect(rect)
+    },
+    [finalizePendingRect, templateDrawingStart, toCanvasRelativePoint],
+  )
+
   const saveProcessingPreferences = useCallback(async () => {
     if (filenameFormatMode === 'custom' && !hasAnyCustomFilenamePart(customFilenameFormat)) {
       setProcessingPreferencesError('En formato custom, al menos un campo debe tener información.')
@@ -812,7 +2600,7 @@ function BackofficeApp() {
         return
       }
       if (event.data.ok) {
-        const oauthTenantId = (event.data.tenant_id || '').trim()
+        const oauthTenantId = normalizeTenantId(event.data.tenant_id)
         const resolvedTenantId = oauthTenantId || tenantId
         if (oauthTenantId) {
           setTenantId(oauthTenantId)
@@ -858,7 +2646,7 @@ function BackofficeApp() {
   }, [showProfilePopover])
 
   function connectGoogleDrive() {
-    const nextTenantId = (tenantId || window.localStorage.getItem(tenantStorageKey) || defaultTenant).trim()
+    const nextTenantId = normalizeTenantId(tenantId || window.localStorage.getItem(tenantStorageKey) || defaultTenant) || defaultTenant
     setTenantId(nextTenantId)
     const url = `${apiBasePath}/auth/google/login?tenant_id=${encodeURIComponent(nextTenantId)}&popup=true`
     const width = 560
@@ -914,6 +2702,7 @@ function BackofficeApp() {
     setShowCreateStructureModal(false)
     setProcessItems([])
     setSelectedProcess(null)
+    setShowProcessModeModal(false)
   }
 
   const loadPendingFiles = useCallback(async () => {
@@ -1035,15 +2824,18 @@ function BackofficeApp() {
       }
       if (section === 'procesar') {
         refreshPendingFiles()
+        void loadTemplatesForTenant(false)
       }
       if (section === 'nomina') {
         void loadNominaEmployees()
       }
       if (section === 'configuracion') {
         void loadProcessingPreferences()
+        void loadPendingFiles()
+        void loadTemplatesForTenant(true)
       }
     },
-    [isConnected, loadNominaEmployees, loadProcessingPreferences, refreshPendingFiles],
+    [isConnected, loadNominaEmployees, loadPendingFiles, loadProcessingPreferences, loadTemplatesForTenant, refreshPendingFiles],
   )
 
   useEffect(() => {
@@ -1068,6 +2860,25 @@ function BackofficeApp() {
       document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
   }, [activeSection, isConnected, refreshPendingFiles])
+
+  useEffect(() => {
+    const documentActiveTemplates = templates.filter(
+      (template) => template.is_active && resolveTemplateMode(template) === 'document',
+    )
+    const readyTemplates = documentActiveTemplates.filter((template) => template.rule_status === 'ready')
+    if (documentActiveTemplates.length === 0) {
+      if (processingMode === 'template') {
+        setSelectedTemplateId('')
+      }
+      return
+    }
+    if (selectedTemplateId && readyTemplates.some((template) => template.template_id === selectedTemplateId)) {
+      return
+    }
+    if (processingMode === 'template') {
+      setSelectedTemplateId(readyTemplates[0]?.template_id || '')
+    }
+  }, [processingMode, selectedTemplateId, templates])
 
   useEffect(() => {
     if (activeSection !== 'procesar' || !isConnected) {
@@ -1101,14 +2912,60 @@ function BackofficeApp() {
     applySectionChange(section, 'push')
   }
 
-  async function triggerProcess() {
+  function changeProcessingMode(nextMode: ProcessingMode) {
+    setProcessingMode(nextMode)
+    setProcessError('')
+    if (nextMode === 'default') {
+      setSelectedTemplateId('')
+      return
+    }
+    setSelectedTemplateId((currentTemplateId) => {
+      if (currentTemplateId && readyProcessTemplates.some((template) => template.template_id === currentTemplateId)) {
+        return currentTemplateId
+      }
+      return readyProcessTemplates[0]?.template_id || ''
+    })
+  }
+
+  function openProcessModeSelector() {
     if (!isConnected) {
       setShowConnectRequiredModal(true)
       return
     }
+    if (
+      processingMode === 'template' &&
+      (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId))
+    ) {
+      setSelectedTemplateId(readyProcessTemplates[0]?.template_id || '')
+    }
+    setProcessError('')
+    setShowProcessModeModal(true)
+  }
+
+  async function triggerProcess() {
+    if (!isConnected) {
+      setShowConnectRequiredModal(true)
+      setShowProcessModeModal(false)
+      return
+    }
+
+    if (processingMode === 'template' && !selectedTemplateId) {
+      setProcessError('Selecciona una plantilla con regla lista para procesar.')
+      return
+    }
+    if (
+      processingMode === 'template' &&
+      !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId)
+    ) {
+      setProcessError('La plantilla seleccionada no tiene una regla de clasificacion valida.')
+      return
+    }
 
     setProcessError('')
-    const response = await ingestDrive(tenantId)
+    const response = await ingestDrive(tenantId, {
+      processing_mode: processingMode,
+      template_id: processingMode === 'template' ? selectedTemplateId : null,
+    })
 
     if (!response.ok || !response.data?.job_id) {
       const lowered = (response.error || '').toLowerCase()
@@ -1125,13 +2982,17 @@ function BackofficeApp() {
     const item: ProcessItem = {
       id: `${response.data.job_id}-${now}`,
       jobId: response.data.job_id,
-      name: `Proceso ${new Date(now).toLocaleString()}`,
+      name:
+        processingMode === 'template'
+          ? `Proceso plantilla ${new Date(now).toLocaleString()}`
+          : `Proceso ${new Date(now).toLocaleString()}`,
       state: 'running',
       detail: null,
       createdAt: now,
     }
 
     setProcessItems((prev) => [item, ...prev])
+    setShowProcessModeModal(false)
   }
 
   function openInputFolder() {
@@ -1197,6 +3058,18 @@ function BackofficeApp() {
 
   const processedCount = latestMetrics.success ?? 0
   const errorCount = latestMetrics.error ?? 0
+  const processTemplates = useMemo(
+    () => templates.filter((template) => template.is_active && resolveTemplateMode(template) === 'document'),
+    [templates],
+  )
+  const readyProcessTemplates = useMemo(
+    () => processTemplates.filter((template) => template.rule_status === 'ready'),
+    [processTemplates],
+  )
+  const documentTemplates = useMemo(
+    () => templates.filter((template) => resolveTemplateMode(template) === 'document'),
+    [templates],
+  )
   const visibleEmployees = useMemo(() => {
     const query = normalizeSearchText(collaboratorSearch)
     const filtered = employees.filter((employee) => normalizeSearchText(employee.name).includes(query))
@@ -1654,7 +3527,7 @@ function BackofficeApp() {
                   <button
                     type="button"
                     className="process-btn"
-                    onClick={triggerProcess}
+                    onClick={openProcessModeSelector}
                     disabled={processLoading || pendingFiles.length === 0}
                   >
                     Procesar
@@ -1731,7 +3604,7 @@ function BackofficeApp() {
             </section>
             <div className="process-layout settings-layout">
               <div className="settings-cards-grid">
-                <section className="pending-card settings-card" aria-label="Configuración de preferencias">
+                <section className="pending-card settings-card settings-card-half" aria-label="Configuración de preferencias">
                   <div className="settings-body">
                     <h4>Procesador de documentos</h4>
                     <div className="settings-field">
@@ -1828,7 +3701,7 @@ function BackofficeApp() {
                   </div>
                 </section>
 
-                <section className="pending-card settings-card" aria-label="Reglas de automatizacion">
+                <section className="pending-card settings-card settings-card-half" aria-label="Reglas de automatizacion">
                   <div className="settings-body">
                     <div className="settings-card-header">
                       <h4>Reglas de automatizacion</h4>
@@ -1914,6 +3787,148 @@ function BackofficeApp() {
                       </button>
                     </div>
                     {automationRulesSuccess && <p className="oauth-feedback success">{automationRulesSuccess}</p>}
+                  </div>
+                </section>
+
+                <section className="pending-card settings-card settings-card-full" aria-label="ABM de plantillas de documentos">
+                  <div className="settings-body">
+                    <div className="settings-card-header">
+                      <h4>Plantillas de documentos</h4>
+                      <span className="settings-chip">ABM</span>
+                    </div>
+                    <p className="settings-preview">
+                      Definí plantillas para detectar zonas de un PDF y guardar campos reutilizables. Cada plantilla
+                      permite dibujar áreas, validar el valor detectado y asignar un campo editable.
+                    </p>
+                    <p className="settings-preview">
+                      Podés crear la plantilla desde un PDF de <strong>INPUT</strong>.
+                    </p>
+                    <div className="settings-field">
+                      <label htmlFor="template-source-file">Archivo de ejemplo</label>
+                      <select
+                        id="template-source-file"
+                        className="year-select"
+                        value={selectedDraftFileId}
+                        onChange={(event) => {
+                          setSelectedDraftFileId(event.target.value)
+                          if (event.target.value) {
+                            setUploadedTemplateFile(null)
+                            if (templateUploadInputRef.current) {
+                              templateUploadInputRef.current.value = ''
+                            }
+                          }
+                          setTemplateError('')
+                          setTemplateSuccess('')
+                        }}
+                        disabled={templateDraftLoading || templatesLoading}
+                      >
+                        <option value="">Seleccionar PDF de INPUT</option>
+                        {pendingFiles.map((file) => (
+                          <option key={file.id} value={file.id}>
+                            {file.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {templateLocalUploadEnabled && (
+                      <div className="settings-field">
+                        <label htmlFor="template-source-local-file">Subir archivo modelo (PDF)</label>
+                        <input
+                          id="template-source-local-file"
+                          ref={templateUploadInputRef}
+                          className="settings-input"
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files && event.target.files.length > 0 ? event.target.files[0] : null
+                            setUploadedTemplateFile(file)
+                            if (file) {
+                              setSelectedDraftFileId('')
+                            }
+                            setTemplateError('')
+                            setTemplateSuccess('')
+                          }}
+                          disabled={templateDraftLoading}
+                        />
+                        {uploadedTemplateFile && <p className="settings-preview">Archivo local: {uploadedTemplateFile.name}</p>}
+                      </div>
+                    )}
+                    <div className="settings-actions">
+                      <button
+                        type="button"
+                        className="modal-primary"
+                        onClick={() => void createTemplateDraft()}
+                        disabled={(!selectedDraftFileId && (!templateLocalUploadEnabled || !uploadedTemplateFile)) || templateDraftLoading}
+                      >
+                        {templateDraftLoading ? 'Cargando PDF...' : 'Crear plantilla'}
+                      </button>
+                      <button
+                        type="button"
+                        className="modal-secondary"
+                        onClick={() => {
+                          setSelectedDraftFileId('')
+                          setUploadedTemplateFile(null)
+                          if (templateUploadInputRef.current) {
+                            templateUploadInputRef.current.value = ''
+                          }
+                          setTemplateError('')
+                          setTemplateSuccess('')
+                        }}
+                        disabled={templateSaving}
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                    <hr className="settings-divider" />
+                    <div className="settings-card-header">
+                      <h4>Plantillas guardadas</h4>
+                      <span className="settings-chip">{documentTemplates.length}</span>
+                    </div>
+                    <div className="template-saved-list">
+                      {templatesLoading && <p>Cargando plantillas...</p>}
+                      {!templatesLoading && documentTemplates.length === 0 && <p>No hay plantillas guardadas todavía.</p>}
+                      {!templatesLoading &&
+                        documentTemplates.map((template) => (
+                          <article key={template.template_id} className="template-saved-item">
+                            <div>
+                              <strong>{template.name}</strong>
+                              <p>{template.description || 'Sin descripcion'}</p>
+                              <span>
+                                {template.is_active ? 'Activa' : 'Inactiva'} · {resolveRuleStatusLabel(template.rule_status)} · Actualizada{' '}
+                                {formatDateTime(template.updated_at)}
+                              </span>
+                            </div>
+                            <div className="template-item-actions">
+                              <button
+                                type="button"
+                                className="link-btn"
+                                onClick={() => void loadTemplateIntoEditor(template.template_id)}
+                                disabled={templateActionLoadingId === template.template_id}
+                              >
+                                {templateActionLoadingId === template.template_id ? 'Cargando...' : 'Editar'}
+                              </button>
+                              <button
+                                type="button"
+                                className="link-btn"
+                                onClick={() => void openClassificationRuleEditor(template.template_id, false)}
+                                disabled={templateActionLoadingId === template.template_id}
+                              >
+                                Editar regla
+                              </button>
+                              <button
+                                type="button"
+                                className="link-btn link-btn-danger"
+                                onClick={() => void removeTemplate(template.template_id)}
+                                disabled={templateActionLoadingId === template.template_id}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                    {templateError && <p className="oauth-feedback error">{templateError}</p>}
+                    {templateSuccess && <p className="oauth-feedback success">{templateSuccess}</p>}
                   </div>
                 </section>
               </div>
@@ -2501,6 +4516,757 @@ function BackofficeApp() {
                 }}
               >
                 Aplicar custom
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProcessModeModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegir modo de procesamiento">
+          <div className="modal-card process-mode-modal">
+            <h3>Elegir flujo de proceso</h3>
+            <p>Seleccioná cómo querés procesar los archivos pendientes.</p>
+            <div className="settings-field">
+              <label htmlFor="processing-mode-select-modal">Modo de procesamiento</label>
+              <select
+                id="processing-mode-select-modal"
+                className="year-select"
+                value={processingMode}
+                onChange={(event) => changeProcessingMode(event.target.value as ProcessingMode)}
+              >
+                <option value="default">Flujo actual</option>
+                <option value="template">Usar plantilla</option>
+              </select>
+            </div>
+            {processingMode === 'template' && (
+              <>
+                <div className="settings-field">
+                  <label htmlFor="processing-template-select-modal">Plantilla</label>
+                  <select
+                    id="processing-template-select-modal"
+                    className="year-select"
+                    value={selectedTemplateId}
+                    onChange={(event) => setSelectedTemplateId(event.target.value)}
+                    disabled={templatesLoading || processTemplates.length === 0}
+                  >
+                    {processTemplates.length === 0 && <option value="">Sin plantillas activas</option>}
+                    {processTemplates.map((template) => (
+                      <option
+                        key={template.template_id}
+                        value={template.template_id}
+                        disabled={template.rule_status !== 'ready'}
+                      >
+                        {template.name}
+                        {template.rule_status === 'ready' ? '' : ' (regla incompleta)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {readyProcessTemplates.length === 0 ? (
+                  <p className="settings-preview">No hay plantillas listas. Completá una regla de clasificacion en Configuracion.</p>
+                ) : (
+                  <p className="settings-preview">Este modo usa una plantilla ABM con su regla de clasificacion asociada.</p>
+                )}
+              </>
+            )}
+            {processError && <p className="oauth-feedback error">{processError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="modal-secondary" onClick={() => setShowProcessModeModal(false)}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={() => void triggerProcess()}
+                disabled={
+                  processingMode === 'template' &&
+                  (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId))
+                }
+              >
+                Procesar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTemplateEditorModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Editor de plantilla">
+          <div className="modal-card template-editor-modal">
+            <div className="template-editor-header-row">
+              <input
+                className="template-title-input"
+                value={templateEditor.name}
+                onChange={(event) => setTemplateEditor((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder={editingTemplateId ? 'Editar plantilla' : 'Nueva plantilla'}
+              />
+              <div className="template-editor-header-actions">
+                <button type="button" className="modal-secondary" onClick={resetTemplateEditor} disabled={templateSaving}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => void saveTemplateEditor()}
+                  disabled={templateSaving || !templateEditor.name.trim()}
+                >
+                  {templateSaving ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+            <p className="settings-preview">
+              Archivo base: {templateEditor.sampleFileName || 'N/D'}
+            </p>
+
+            <div className="template-editor-layout">
+              <div className="template-canvas-panel">
+                <div
+                  ref={templateCanvasRef}
+                  className="template-canvas-wrapper"
+                  onMouseDown={startTemplateDrawing}
+                  onMouseMove={moveTemplateDrawing}
+                  onMouseUp={endTemplateDrawing}
+                  onMouseLeave={endTemplateDrawing}
+                >
+                  {templateEditor.previewImageDataUrl && (
+                    <img src={templateEditor.previewImageDataUrl} className="template-canvas-image" alt="PDF de plantilla" />
+                  )}
+                  {!templateEditor.previewImageDataUrl && (
+                    <p className="template-canvas-empty">No se pudo cargar la vista previa del PDF.</p>
+                  )}
+                  {templateEditor.previewImageDataUrl && (
+                    <div className="template-canvas-overlay">
+                      {templateEditor.fields.map((field, index) => (
+                        <div
+                          key={field.id}
+                          className={`template-zone ${templateHoveredFieldId === field.id ? 'template-zone-active' : ''}`}
+                          style={{
+                            left: `${field.rect.x * 100}%`,
+                            top: `${field.rect.y * 100}%`,
+                            width: `${field.rect.w * 100}%`,
+                            height: `${field.rect.h * 100}%`,
+                          }}
+                          onMouseEnter={() => setTemplateHoveredFieldId(field.id)}
+                          onMouseLeave={() => setTemplateHoveredFieldId((prev) => (prev === field.id ? null : prev))}
+                          title={`${field.name} (${index + 1})`}
+                        />
+                      ))}
+                      {templatePendingRect && (
+                        <div
+                          className="template-zone template-zone-pending"
+                          style={{
+                            left: `${templatePendingRect.x * 100}%`,
+                            top: `${templatePendingRect.y * 100}%`,
+                            width: `${templatePendingRect.w * 100}%`,
+                            height: `${templatePendingRect.h * 100}%`,
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="settings-preview">
+                  Dibuja una zona con el mouse sobre el PDF. Al soltar, se autocompleta el dato detectado y la etiqueta
+                  sugerida.
+                </p>
+              </div>
+
+              <div className="template-form-panel">
+                <div className="settings-field">
+                  <label htmlFor="template-description-modal">Descripcion</label>
+                  <input
+                    id="template-description-modal"
+                    className="settings-input"
+                    value={templateEditor.description}
+                    onChange={(event) => setTemplateEditor((prev) => ({ ...prev, description: event.target.value }))}
+                    placeholder="Uso interno"
+                  />
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="template-field-detected-value">Dato detectado</label>
+                  <textarea
+                    id="template-field-detected-value"
+                    className="settings-input template-detected-input"
+                    value={templateFieldDraft.detectedValue}
+                    onChange={(event) =>
+                      setTemplateFieldDraft((prev) => ({
+                        ...prev,
+                        detectedValue: event.target.value,
+                      }))
+                    }
+                    placeholder="Dato detectado en la zona"
+                  />
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="template-field-suggested-label">Etiqueta sugerida</label>
+                  <input
+                    id="template-field-suggested-label"
+                    className="settings-input"
+                    value={templateFieldDraft.suggestedLabel}
+                    onChange={(event) =>
+                      setTemplateFieldDraft((prev) => ({
+                        ...prev,
+                        suggestedLabel: event.target.value,
+                      }))
+                    }
+                    placeholder="Etiqueta sugerida"
+                  />
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="template-field-name">Campo</label>
+                  <input
+                    id="template-field-name"
+                    className="settings-input"
+                    value={templateFieldDraft.name}
+                    onChange={(event) =>
+                      setTemplateFieldDraft((prev) => ({
+                        ...prev,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Ej. total_neto"
+                  />
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="template-field-type">Tipo</label>
+                  <select
+                    id="template-field-type"
+                    className="year-select"
+                    value={templateFieldDraft.type}
+                    onChange={(event) =>
+                      setTemplateFieldDraft((prev) => ({
+                        ...prev,
+                        type: event.target.value as TemplateFieldType,
+                      }))
+                    }
+                  >
+                    <option value="string">string</option>
+                    <option value="number">number</option>
+                    <option value="date">date</option>
+                    <option value="array">array</option>
+                  </select>
+                </div>
+                <label className="template-toggle">
+                  <input
+                    type="checkbox"
+                    checked={templateFieldDraft.required}
+                    onChange={(event) =>
+                      setTemplateFieldDraft((prev) => ({
+                        ...prev,
+                        required: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Campo requerido</span>
+                </label>
+                <div className="settings-actions">
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={addFieldToTemplate}
+                    disabled={!templatePendingRect || !templateFieldDraft.name.trim()}
+                  >
+                    Agregar campo
+                  </button>
+                </div>
+                <hr className="settings-divider" />
+                <p className="template-box-title">Campos agregados</p>
+                <div className="template-field-list">
+                  {templateEditor.fields.length === 0 && <p>No hay campos agregados todavía.</p>}
+                  {templateEditor.fields.map((field) => {
+                    const sourceValue = field.detectedValue || field.sampleValue || ''
+                    const preview = buildTransformPipelinePreview(sourceValue, field.transforms, field.key)
+                    return (
+                      <article
+                        key={field.id}
+                        className={`template-saved-item ${templateHoveredFieldId === field.id ? 'template-saved-item-active' : ''}`}
+                        onMouseEnter={() => setTemplateHoveredFieldId(field.id)}
+                        onMouseLeave={() => setTemplateHoveredFieldId((prev) => (prev === field.id ? null : prev))}
+                      >
+                        <div className="template-saved-main">
+                          <div>
+                            <strong>{field.name}</strong>
+                            <p>{field.suggestedLabel || field.label || 'Sin etiqueta sugerida'}</p>
+                            <span>{sourceValue || 'Sin valor detectado'}</span>
+                          </div>
+
+                          <div className="template-field-transform-panel">
+                            <div className="template-field-transform-header">
+                              <span>Transformaciones ({field.transforms.length}/3)</span>
+                              <button
+                                type="button"
+                                className="modal-secondary"
+                                onClick={() => addTemplateFieldTransformStep(field.id)}
+                                disabled={field.transforms.length >= 3}
+                              >
+                                + Paso
+                              </button>
+                            </div>
+
+                            {field.transforms.length === 0 ? (
+                              <p className="settings-preview">Sin transformaciones (valor identidad).</p>
+                            ) : (
+                              <div className="template-transform-steps">
+                                {field.transforms.map((step, stepIndex) => (
+                                  <div key={step.id} className="template-transform-step-row">
+                                    <span className="template-transform-step-index">Paso {stepIndex + 1}</span>
+                                    <select
+                                      className="year-select"
+                                      value={step.operation}
+                                      onChange={(event) =>
+                                        updateTemplateFieldTransformStep(field.id, step.id, (current) => {
+                                          const operation = normalizeTransformOperation(event.target.value)
+                                          const next = createTransformStepDraft(operation)
+                                          next.id = current.id
+                                          return next
+                                        })
+                                      }
+                                    >
+                                      {transformOperationOptions.map((option) => (
+                                        <option key={`${step.id}-${option.value}`} value={option.value}>
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    {step.operation === 'replace' && (
+                                      <div className="template-transform-params">
+                                        <input
+                                          className="settings-input"
+                                          placeholder="from"
+                                          value={step.from}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              from: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <input
+                                          className="settings-input"
+                                          placeholder="to"
+                                          value={step.to}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              to: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                      </div>
+                                    )}
+
+                                    {step.operation === 'remove_chars' && (
+                                      <div className="template-transform-params">
+                                        <input
+                                          className="settings-input"
+                                          placeholder="Caracteres a remover"
+                                          value={step.chars}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              chars: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                      </div>
+                                    )}
+
+                                    {step.operation === 'split' && (
+                                      <div className="template-transform-params">
+                                        <input
+                                          className="settings-input"
+                                          placeholder="Separador"
+                                          value={step.delimiter}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              delimiter: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <input
+                                          className="settings-input"
+                                          placeholder="Indice (1..n)"
+                                          value={step.index}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              index: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                      </div>
+                                    )}
+
+                                    {step.operation === 'case' && (
+                                      <div className="template-transform-params">
+                                        <select
+                                          className="year-select"
+                                          value={step.mode}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              mode:
+                                                event.target.value === 'upper'
+                                                  ? 'upper'
+                                                  : event.target.value === 'title'
+                                                    ? 'title'
+                                                    : 'lower',
+                                            }))
+                                          }
+                                        >
+                                          {transformCaseModeOptions.map((option) => (
+                                            <option key={`${step.id}-${option.value}`} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
+
+                                    {step.operation === 'date_format' && (
+                                      <div className="template-transform-params">
+                                        <select
+                                          className="year-select"
+                                          value={step.output}
+                                          onChange={(event) =>
+                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
+                                              ...current,
+                                              output:
+                                                event.target.value === 'DD' ||
+                                                event.target.value === 'MM' ||
+                                                event.target.value === 'YYYY' ||
+                                                event.target.value === 'MM/YYYY' ||
+                                                event.target.value === 'YYYY-MM' ||
+                                                event.target.value === 'MMM' ||
+                                                event.target.value === 'MMMM'
+                                                  ? event.target.value
+                                                  : 'YYYY',
+                                            }))
+                                          }
+                                        >
+                                          {transformDateOutputOptions.map((option) => (
+                                            <option key={`${step.id}-${option.value}`} value={option.value}>
+                                              {option.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
+
+                                    {step.operation === 'trim' && <p className="settings-preview">Sin parámetros.</p>}
+
+                                    <button
+                                      type="button"
+                                      className="link-btn link-btn-danger"
+                                      onClick={() => removeTemplateFieldTransformStep(field.id, step.id)}
+                                    >
+                                      Quitar
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="template-transform-preview">
+                              <p className="settings-preview"><strong>Vista previa:</strong></p>
+                              <p className="settings-preview">Original: {preview.snapshots[0] || '(vacio)'}</p>
+                              {field.transforms.map((step, stepIndex) => (
+                                <p key={`${field.id}-preview-${step.id}`} className="settings-preview">
+                                  Paso {stepIndex + 1}: {preview.snapshots[stepIndex + 1] || '(vacio)'}
+                                </p>
+                              ))}
+                              <p className="settings-preview"><strong>Resultado:</strong> {preview.result || '(vacio)'}</p>
+                              {preview.error && <p className="settings-hint">{preview.error}</p>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="template-item-actions">
+                          <button
+                            type="button"
+                            className="link-btn link-btn-danger"
+                            onClick={() => removeTemplateFieldFromEditor(field.id)}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {templateError && <p className="oauth-feedback error">{templateError}</p>}
+            {templateSuccess && <p className="oauth-feedback success">{templateSuccess}</p>}
+          </div>
+        </div>
+      )}
+
+      {showClassificationRuleModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
+          <div className="modal-card classification-rule-modal">
+            <div className="settings-card-header">
+              <h3>Regla de clasificacion</h3>
+              {classificationRuleMandatory && <span className="settings-chip">Obligatorio</span>}
+            </div>
+            <p className="settings-preview">
+              Plantilla: <strong>{classificationRuleTemplateName || 'N/D'}</strong>
+            </p>
+            <p className="settings-preview">
+              La raíz es fija: <strong>RECIBOX</strong>. Definí carpetas anidadas y el nombre final del archivo.
+            </p>
+
+            {classificationRuleLoading ? (
+              <p className="settings-preview">Cargando regla...</p>
+            ) : (
+              <div className="classification-rule-body">
+                <p className="classification-rule-root">RECIBOX</p>
+                <div className="classification-rule-nodes">
+                  {classificationRuleNodes.map((node, nodeIndex) => (
+                    <article key={node.id} className="classification-rule-node-card">
+                      <div className="classification-rule-node-header">
+                        <strong>{node.nodeType === 'folder' ? `Carpeta nivel ${nodeIndex + 1}` : 'Archivo final'}</strong>
+                        {node.nodeType === 'folder' && (
+                          <button
+                            type="button"
+                            className="link-btn link-btn-danger"
+                            onClick={() => removeClassificationRuleFolderNode(node.id)}
+                            disabled={classificationRuleSaving}
+                          >
+                            Eliminar nivel
+                          </button>
+                        )}
+                      </div>
+                      {node.nodeType === 'folder' && (
+                        <div className="settings-field">
+                          <label>Si la carpeta ya existe</label>
+                          <select
+                            className="year-select"
+                            value={node.conflictPolicy || 'use_existing'}
+                            onChange={(event) =>
+                              updateClassificationRuleNodePolicy(
+                                node.id,
+                                event.target.value === 'create_new' ? 'create_new' : 'use_existing',
+                              )
+                            }
+                            disabled={classificationRuleSaving}
+                          >
+                            <option value="use_existing">Utilizar carpeta existente</option>
+                            <option value="create_new">Crear nueva carpeta</option>
+                          </select>
+                        </div>
+                      )}
+                      <div className="classification-rule-parts">
+                        {node.nameParts.map((part) => (
+                          <div key={part.id} className="classification-rule-part-row">
+                            <select
+                              className="year-select"
+                              value={part.partType}
+                              onChange={(event) =>
+                                updateClassificationRuleNamePart(node.id, part.id, () =>
+                                  event.target.value === 'literal'
+                                    ? createRulePartDraft('literal', '', '')
+                                    : event.target.value === 'index'
+                                      ? createRulePartDraft('index')
+                                    : event.target.value === 'space'
+                                      ? createRulePartDraft('space', '', ' ')
+                                      : createRulePartDraft('field', classificationRuleFieldOptions[0]?.key || ''),
+                                )
+                              }
+                              disabled={classificationRuleSaving}
+                            >
+                              <option value="field">Campo</option>
+                              <option value="literal">Texto</option>
+                              <option value="index">Indice</option>
+                              <option value="space">Espacio</option>
+                            </select>
+                            {part.partType === 'field' ? (
+                              <select
+                                className="year-select"
+                                value={part.fieldKey}
+                                onChange={(event) =>
+                                  updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                    ...current,
+                                    fieldKey: event.target.value,
+                                  }))
+                                }
+                                disabled={classificationRuleSaving || classificationRuleFieldOptions.length === 0}
+                              >
+                                {classificationRuleFieldOptions.length === 0 && <option value="">Sin campos</option>}
+                                {classificationRuleFieldOptions.map((field) => (
+                                  <option key={`${node.id}-${part.id}-${field.key}`} value={field.key}>
+                                    {field.label}
+                                    {field.required ? ' (requerido)' : ''}
+                                    {field.previewValue ? ` -> ${field.previewValue}` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : part.partType === 'literal' ? (
+                              <input
+                                className="settings-input"
+                                value={part.literalValue}
+                                onChange={(event) =>
+                                  updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                    ...current,
+                                    literalValue: event.target.value,
+                                  }))
+                                }
+                                placeholder="Ej. #$%&/()@ texto"
+                                disabled={classificationRuleSaving}
+                              />
+                            ) : part.partType === 'index' ? (
+                              <div className="classification-rule-index-editor">
+                                <select
+                                  className="year-select"
+                                  value={part.indexKind}
+                                  onChange={(event) =>
+                                    updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                      ...current,
+                                      indexKind: event.target.value === 'alphabetic' ? 'alphabetic' : 'numeric',
+                                    }))
+                                  }
+                                  disabled={classificationRuleSaving}
+                                >
+                                  {ruleIndexKindOptions.map((option) => (
+                                    <option key={`${part.id}-kind-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  className="year-select"
+                                  value={part.indexDirection}
+                                  onChange={(event) =>
+                                    updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                      ...current,
+                                      indexDirection: event.target.value === 'decremental' ? 'decremental' : 'incremental',
+                                    }))
+                                  }
+                                  disabled={classificationRuleSaving}
+                                >
+                                  {ruleIndexDirectionOptions.map((option) => (
+                                    <option key={`${part.id}-direction-${option.value}`} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {part.indexDirection === 'decremental' &&
+                                  (part.indexKind === 'numeric' ? (
+                                    <input
+                                      className="settings-input"
+                                      value={part.indexStartNumeric}
+                                      onChange={(event) =>
+                                        updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                          ...current,
+                                          indexStartNumeric: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="Inicio 0-9999"
+                                      disabled={classificationRuleSaving}
+                                    />
+                                  ) : (
+                                    <input
+                                      className="settings-input"
+                                      value={part.indexStartAlpha}
+                                      onChange={(event) =>
+                                        updateClassificationRuleNamePart(node.id, part.id, (current) => ({
+                                          ...current,
+                                          indexStartAlpha: event.target.value.toUpperCase(),
+                                        }))
+                                      }
+                                      placeholder="Inicio A-Z"
+                                      disabled={classificationRuleSaving}
+                                    />
+                                  ))}
+                              </div>
+                            ) : (
+                              <div className="settings-fixed-value">Espacio</div>
+                            )}
+                            <button
+                              type="button"
+                              className="link-btn link-btn-danger"
+                              onClick={() => removeClassificationRuleNamePart(node.id, part.id)}
+                              disabled={classificationRuleSaving}
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="settings-preview">
+                        Vista previa nodo: {buildRuleNodePreview(node, classificationRuleFieldOptions)}
+                      </p>
+                      <div className="classification-rule-node-actions">
+                        <button
+                          type="button"
+                          className="modal-secondary"
+                          onClick={() => addClassificationRuleNamePart(node.id, 'field')}
+                          disabled={classificationRuleSaving || classificationRuleFieldOptions.length === 0}
+                        >
+                          + Campo
+                        </button>
+                        <button
+                          type="button"
+                          className="modal-secondary"
+                          onClick={() => addClassificationRuleNamePart(node.id, 'literal')}
+                          disabled={classificationRuleSaving}
+                        >
+                          + Texto
+                        </button>
+                        <button
+                          type="button"
+                          className="modal-secondary"
+                          onClick={() => addClassificationRuleNamePart(node.id, 'index')}
+                          disabled={classificationRuleSaving}
+                        >
+                          + Indice
+                        </button>
+                        <button
+                          type="button"
+                          className="modal-secondary"
+                          onClick={() => addClassificationRuleNamePart(node.id, 'space')}
+                          disabled={classificationRuleSaving}
+                        >
+                          + Espacio
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="classification-rule-footer-actions">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={addClassificationRuleFolderNode}
+                    disabled={classificationRuleSaving}
+                  >
+                    Agregar nivel de carpeta
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {classificationRuleError && <p className="oauth-feedback error">{classificationRuleError}</p>}
+            {classificationRuleSuccess && <p className="oauth-feedback success">{classificationRuleSuccess}</p>}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={closeClassificationRuleEditor}
+                disabled={classificationRuleSaving}
+              >
+                {classificationRuleMandatory ? 'Cerrar (pendiente)' : 'Cancelar'}
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={() => void saveClassificationRuleEditor()}
+                disabled={classificationRuleLoading || classificationRuleSaving}
+              >
+                {classificationRuleSaving ? 'Guardando...' : 'Guardar regla'}
               </button>
             </div>
           </div>
