@@ -9,10 +9,14 @@ class Settings(BaseSettings):
     google_application_credentials: str | None = None
     google_oauth_client_secrets: str | None = None
     google_oauth_redirect_uri: str | None = None
+<<<<<<< HEAD
     google_oauth_scopes: str = (
         "https://www.googleapis.com/auth/drive.file "
         "https://www.googleapis.com/auth/drive.metadata.readonly"
     )
+=======
+    google_oauth_scopes: str = "https://www.googleapis.com/auth/drive.file"
+>>>>>>> 74d9da0 (Set GOOGLE_OAUTH_SCOPES to drive.file)
     google_oauth_token_dir: str = "tmp/google_tokens"
     oauth_required_for_tenant: bool = False
     drive_input_folder_id: str | None = None
