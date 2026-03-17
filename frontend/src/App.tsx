@@ -1,5 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
+import {
+  ArrowDown,
+  ArrowUp,
+  CalendarDays,
+  ChevronRight,
+  FileText,
+  Folder,
+  GitBranchPlus,
+  GripVertical,
+  Info,
+  ListOrdered,
+  Plus,
+  Save,
+  Settings,
+  SlidersHorizontal,
+  Tag,
+  Tags,
+  Type,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
+import { DragOverlay, DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, closestCenter, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
+import { snapCenterToCursor } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import './App.css'
 import {
   adoptReciboxFolder,
@@ -283,15 +308,550 @@ const transformDateOutputOptions: Array<{ value: TemplateFieldTransformDateOutpu
   { value: 'MMMM', label: 'MMMM (mes completo ES)' },
 ]
 
-const ruleIndexKindOptions: Array<{ value: ClassificationRuleIndexKind; label: string }> = [
-  { value: 'numeric', label: 'Numerico (0-9999)' },
-  { value: 'alphabetic', label: 'Alfabetico (A-Z)' },
-]
+type RulePaletteItemKind = 'field' | 'index' | 'space' | 'literal'
 
-const ruleIndexDirectionOptions: Array<{ value: ClassificationRuleIndexDirection; label: string }> = [
-  { value: 'incremental', label: 'Incremental (+)' },
-  { value: 'decremental', label: 'Decremental (-)' },
-]
+type RulePaletteItem = {
+  id: string
+  label: string
+  kind: RulePaletteItemKind
+  fieldKey?: string
+  icon: LucideIcon
+  highlighted?: boolean
+}
+
+type RuleDragOverlayChipDraft = {
+  label: string
+  kind: RulePaletteItemKind
+}
+
+const RULE_DND_SOURCE_PREFIX = 'rule-source'
+const RULE_DND_PART_PREFIX = 'rule-part'
+const RULE_DND_DROP_PREFIX = 'rule-drop'
+
+function buildRuleSourceDndId(sourceId: string): string {
+  return `${RULE_DND_SOURCE_PREFIX}:${sourceId}`
+}
+
+function buildRulePartDndId(nodeId: string, partId: string): string {
+  return `${RULE_DND_PART_PREFIX}:${nodeId}:${partId}`
+}
+
+function buildRuleDropDndId(nodeId: string): string {
+  return `${RULE_DND_DROP_PREFIX}:${nodeId}`
+}
+
+function parseRulePartDndId(rawId: string): { nodeId: string; partId: string } | null {
+  if (!rawId.startsWith(`${RULE_DND_PART_PREFIX}:`)) {
+    return null
+  }
+  const chunks = rawId.split(':')
+  if (chunks.length !== 3 || !chunks[1] || !chunks[2]) {
+    return null
+  }
+  return {
+    nodeId: chunks[1],
+    partId: chunks[2],
+  }
+}
+
+function parseRuleDropDndId(rawId: string): { nodeId: string } | null {
+  if (!rawId.startsWith(`${RULE_DND_DROP_PREFIX}:`)) {
+    return null
+  }
+  const chunks = rawId.split(':')
+  if (chunks.length !== 2 || !chunks[1]) {
+    return null
+  }
+  return { nodeId: chunks[1] }
+}
+
+function resolveRuleFieldLabel(fieldKey: string, fieldOptions: RuleFieldOption[]): string {
+  const found = fieldOptions.find((field) => field.key === fieldKey)
+  return found?.label || fieldKey || 'Campo'
+}
+
+type RuleDragOverlayChipProps = RuleDragOverlayChipDraft & {
+  overlay?: boolean
+}
+
+function RuleDragOverlayChip({ label, kind, overlay = false }: RuleDragOverlayChipProps) {
+  const toneClassName =
+    kind === 'index'
+      ? 'border-green-300 bg-green-100 text-green-800'
+      : kind === 'space'
+        ? 'border-green-200 bg-green-50 text-green-800'
+        : kind === 'literal'
+          ? 'border-slate-300 bg-white text-slate-700'
+          : 'border-slate-200 bg-slate-100 text-slate-700'
+
+  return (
+    <div
+      className={`inline-flex h-8 w-auto max-w-[260px] items-center gap-1 rounded-full border px-2.5 text-[13px] font-semibold shadow-lg ${
+        overlay ? 'pointer-events-none cursor-grabbing' : ''
+      } ${toneClassName}`}
+    >
+      <span className="truncate whitespace-nowrap">{label || 'Texto'}</span>
+    </div>
+  )
+}
+
+type RulePaletteChipProps = {
+  item: RulePaletteItem
+  disabled: boolean
+  metaText?: string
+}
+
+function RulePaletteChip({ item, disabled, metaText = '' }: RulePaletteChipProps) {
+  const Icon = item.icon
+  const chipTitle = metaText ? `${item.label}: ${metaText}` : item.label
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: buildRuleSourceDndId(item.id),
+    data: {
+      sourceKind: item.kind,
+      fieldKey: item.fieldKey || '',
+      label: item.label,
+    },
+    disabled,
+  })
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      title={chipTitle}
+      className={`group flex min-w-0 w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+        item.highlighted
+          ? 'border-green-300 bg-[repeating-linear-gradient(135deg,rgba(190,242,100,0.10),rgba(190,242,100,0.10)_6px,rgba(255,255,255,0.7)_6px,rgba(255,255,255,0.7)_12px)] text-green-800'
+          : 'border-slate-200 bg-white text-slate-700'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-grab active:cursor-grabbing'} ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+      disabled={disabled}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="min-w-0 flex-1 truncate">
+        <span className="block min-w-0 truncate text-[13px] font-semibold">{item.label}</span>
+        {metaText && <span className="block min-w-0 truncate text-[10px] text-slate-500">{metaText}</span>}
+      </span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-slate-400 group-hover:text-slate-500">
+        <Icon className={`h-3.5 w-3.5 ${item.highlighted ? 'text-green-700' : ''}`} />
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
+    </button>
+  )
+}
+
+type RuleBuilderLaneProps = {
+  nodeId: string
+  nodeType: 'folder' | 'file'
+  parts: ClassificationRuleNamePartDraft[]
+  fieldOptions: RuleFieldOption[]
+  paletteItems: RulePaletteItem[]
+  saving: boolean
+  isOver: boolean
+  onLiteralChange: (nodeId: string, partId: string, value: string) => void
+  onRemove: (nodeId: string, partId: string) => void
+  onAddPart: (nodeId: string, sourceKind: RulePaletteItemKind, fieldKey?: string) => void
+}
+
+function RuleBuilderLane({
+  nodeId,
+  nodeType,
+  parts,
+  fieldOptions,
+  paletteItems,
+  saving,
+  isOver,
+  onLiteralChange,
+  onRemove,
+  onAddPart,
+}: RuleBuilderLaneProps) {
+  const [showInsertMenu, setShowInsertMenu] = useState(false)
+  const [showTemplateFieldOptions, setShowTemplateFieldOptions] = useState(false)
+  const [insertMenuPosition, setInsertMenuPosition] = useState<{ left: number; top: number } | null>(null)
+  const insertMenuRef = useRef<HTMLDivElement | null>(null)
+  const addButtonRef = useRef<HTMLButtonElement | null>(null)
+  const sortableIds = parts.map((part) => buildRulePartDndId(nodeId, part.id))
+  const fixedWildcardItems = useMemo(
+    () =>
+      (['space', 'index', 'literal'] as RulePaletteItemKind[])
+        .map((kind) => paletteItems.find((item) => item.kind === kind) || null)
+        .filter((item): item is RulePaletteItem => item !== null),
+    [paletteItems],
+  )
+  const templateFieldItems = useMemo(() => paletteItems.filter((item) => item.kind === 'field'), [paletteItems])
+
+  useEffect(() => {
+    if (!showInsertMenu) {
+      return
+    }
+    const handleOutsidePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target) {
+        return
+      }
+      if (insertMenuRef.current?.contains(target) || addButtonRef.current?.contains(target)) {
+        return
+      }
+      setShowInsertMenu(false)
+      setShowTemplateFieldOptions(false)
+    }
+    const handleViewportChange = () => {
+      setShowInsertMenu(false)
+      setShowTemplateFieldOptions(false)
+    }
+    window.addEventListener('mousedown', handleOutsidePointerDown)
+    window.addEventListener('resize', handleViewportChange)
+    window.addEventListener('scroll', handleViewportChange, true)
+    return () => {
+      window.removeEventListener('mousedown', handleOutsidePointerDown)
+      window.removeEventListener('resize', handleViewportChange)
+      window.removeEventListener('scroll', handleViewportChange, true)
+    }
+  }, [showInsertMenu])
+
+  const openInsertMenu = useCallback(() => {
+    if (showInsertMenu) {
+      setShowInsertMenu(false)
+      setShowTemplateFieldOptions(false)
+      return
+    }
+    if (!addButtonRef.current) {
+      setShowInsertMenu(true)
+      setShowTemplateFieldOptions(false)
+      return
+    }
+    const rect = addButtonRef.current.getBoundingClientRect()
+    const maxLeft = Math.max(window.innerWidth - 240, 8)
+    setInsertMenuPosition({
+      left: Math.min(Math.max(rect.left, 8), maxLeft),
+      top: Math.min(rect.bottom + 6, Math.max(window.innerHeight - 220, 8)),
+    })
+    setShowTemplateFieldOptions(false)
+    setShowInsertMenu(true)
+  }, [showInsertMenu])
+
+  return (
+    <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
+      <div
+        className={`min-h-[56px] rounded-lg border-2 border-dashed p-2.5 transition-colors ${
+          isOver ? 'border-green-500 bg-green-50' : 'border-slate-300 bg-slate-50'
+        }`}
+      >
+        <div className="flex w-full flex-row items-center flex-wrap gap-2">
+          {parts.map((part) => (
+            <RuleSortableChip
+              key={part.id}
+              nodeId={nodeId}
+              part={part}
+              fieldOptions={fieldOptions}
+              saving={saving}
+              onLiteralChange={onLiteralChange}
+              onRemove={onRemove}
+            />
+          ))}
+
+          <button
+            ref={addButtonRef}
+            type="button"
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 px-2 text-slate-500 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={openInsertMenu}
+            disabled={saving}
+            title={nodeType === 'file' ? 'Agregar parte al nombre de archivo' : 'Agregar parte al nombre de carpeta'}
+            aria-expanded={showInsertMenu && !saving}
+            aria-haspopup="menu"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+
+        {showInsertMenu && !saving && insertMenuPosition && (
+          <div
+            ref={insertMenuRef}
+            className="fixed z-[1200] w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-2xl"
+            style={{ left: insertMenuPosition.left, top: insertMenuPosition.top }}
+            role="menu"
+            aria-label="Agregar parte de nombre"
+          >
+            {fixedWildcardItems.map((item) => {
+              const Icon = item.icon
+              return (
+                <button
+                  key={`${nodeId}-${item.id}`}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                  onClick={() => {
+                    onAddPart(nodeId, item.kind, item.fieldKey)
+                    setShowInsertMenu(false)
+                    setShowTemplateFieldOptions(false)
+                  }}
+                  disabled={saving}
+                  role="menuitem"
+                >
+                  <Icon className="h-4 w-4 text-slate-500" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              )
+            })}
+
+            <div className="mt-1 border-t border-slate-100 pt-1">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                onClick={() => setShowTemplateFieldOptions((prev) => !prev)}
+                onMouseEnter={() => setShowTemplateFieldOptions(true)}
+                disabled={saving}
+                role="menuitem"
+                aria-expanded={showTemplateFieldOptions}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Tags className="h-4 w-4 text-slate-500" />
+                  <span className="truncate">Campos Dinámicos...</span>
+                </span>
+                <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition ${showTemplateFieldOptions ? 'rotate-90' : ''}`} />
+              </button>
+
+              {showTemplateFieldOptions && (
+                <div className="mt-1 max-h-44 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-1">
+                  {templateFieldItems.length === 0 ? (
+                    <p className="px-2 py-2 text-xs font-semibold text-slate-500">Sin campos dinámicos disponibles.</p>
+                  ) : (
+                    templateFieldItems.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <button
+                          key={`${nodeId}-field-${item.id}`}
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white"
+                          onClick={() => {
+                            onAddPart(nodeId, item.kind, item.fieldKey)
+                            setShowInsertMenu(false)
+                            setShowTemplateFieldOptions(false)
+                          }}
+                          disabled={saving}
+                          role="menuitem"
+                        >
+                          <Icon className="h-4 w-4 text-slate-500" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </SortableContext>
+  )
+}
+
+type RuleBuilderNodeCardProps = {
+  node: ClassificationRuleNodeDraft
+  nodeIndex: number
+  fieldOptions: RuleFieldOption[]
+  paletteItems: RulePaletteItem[]
+  saving: boolean
+  onLiteralChange: (nodeId: string, partId: string, value: string) => void
+  onRemovePart: (nodeId: string, partId: string) => void
+  onAddPart: (nodeId: string, sourceKind: RulePaletteItemKind, fieldKey?: string) => void
+  onRemoveFolderLevel: (nodeId: string) => void
+}
+
+function RuleBuilderNodeCard({
+  node,
+  nodeIndex,
+  fieldOptions,
+  paletteItems,
+  saving,
+  onLiteralChange,
+  onRemovePart,
+  onAddPart,
+  onRemoveFolderLevel,
+}: RuleBuilderNodeCardProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: buildRuleDropDndId(node.id),
+    data: {
+      nodeId: node.id,
+      kind: 'rule-drop',
+    },
+  })
+
+  return (
+    <div className="relative w-full pl-14">
+      <span className="pointer-events-none absolute left-[15px] top-0 h-full border-l border-dashed border-slate-300" />
+      <span className="pointer-events-none absolute left-[15px] top-7 w-8 border-t border-dashed border-slate-300" />
+      <span className="absolute left-0 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-[11px] font-extrabold text-slate-600">
+        {node.nodeType === 'folder' ? nodeIndex + 1 : <FileText className="h-4 w-4 text-green-700" />}
+      </span>
+
+      <article
+        ref={setNodeRef}
+        className="w-full rounded-xl border border-slate-200 bg-white p-3.5 transition-colors"
+      >
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <strong className="text-base font-extrabold text-slate-800">
+            {node.nodeType === 'folder' ? `Carpeta nivel ${nodeIndex + 1}` : 'Archivo final'}
+          </strong>
+          {node.nodeType === 'folder' && (
+            <button
+              type="button"
+              className="text-sm font-bold text-red-500 transition hover:text-red-600"
+              onClick={() => onRemoveFolderLevel(node.id)}
+              disabled={saving}
+            >
+              Eliminar nivel
+            </button>
+          )}
+        </div>
+
+        {node.nodeType === 'file' && (
+          <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+            Arrastrá y ordená chips para componer el nombre final del archivo.
+          </p>
+        )}
+
+        <div className="flex items-start gap-2">
+          {node.nodeType === 'file' && <span className="text-sm font-bold text-slate-600">Archivo:</span>}
+          <div className="min-w-0 flex-1">
+            <RuleBuilderLane
+              nodeId={node.id}
+              nodeType={node.nodeType}
+              parts={node.nameParts}
+              fieldOptions={fieldOptions}
+              paletteItems={paletteItems}
+              saving={saving}
+              isOver={isOver}
+              onLiteralChange={onLiteralChange}
+              onRemove={onRemovePart}
+              onAddPart={onAddPart}
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Vista previa nodo:{' '}
+          <strong className="font-semibold text-slate-700">{buildRuleNodePreview(node, fieldOptions)}</strong>
+        </p>
+      </article>
+    </div>
+  )
+}
+
+type RuleSortableChipProps = {
+  nodeId: string
+  part: ClassificationRuleNamePartDraft
+  fieldOptions: RuleFieldOption[]
+  saving: boolean
+  onLiteralChange: (nodeId: string, partId: string, value: string) => void
+  onRemove: (nodeId: string, partId: string) => void
+}
+
+function RuleSortableChip({ nodeId, part, fieldOptions, saving, onLiteralChange, onRemove }: RuleSortableChipProps) {
+  const sortableId = buildRulePartDndId(nodeId, part.id)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sortableId,
+    data: {
+      nodeId,
+      partId: part.id,
+      kind: 'rule-part',
+    },
+    disabled: saving,
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  const sharedChipClassName = `inline-flex h-8 w-auto shrink-0 items-center gap-1 rounded-full border px-2 text-[13px] font-semibold ${
+    isDragging ? 'opacity-40' : ''
+  }`
+
+  if (part.partType === 'literal') {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`${sharedChipClassName} border-slate-300 bg-white text-slate-700`}
+      >
+        <button
+          type="button"
+          className="inline-flex h-6 w-5 items-center justify-center rounded text-slate-400 transition hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+          {...attributes}
+          {...listeners}
+          disabled={saving}
+          aria-label="Mover texto"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+        <Tag className="h-3.5 w-3.5 text-slate-400" />
+        <input
+          style={{ width: `${Math.max(part.literalValue.length, 5)}ch` }}
+          className="h-6 min-w-[5ch] border-0 bg-transparent px-0 text-[13px] font-semibold text-slate-700 outline-none placeholder:text-slate-400"
+          value={part.literalValue}
+          onChange={(event) => onLiteralChange(nodeId, part.id, event.target.value)}
+          placeholder="Texto..."
+          disabled={saving}
+        />
+        <button
+          type="button"
+          className="inline-flex h-6 w-5 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => onRemove(nodeId, part.id)}
+          disabled={saving}
+          aria-label="Eliminar texto"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
+
+  const chipLabel =
+    part.partType === 'field'
+      ? resolveRuleFieldLabel(part.fieldKey, fieldOptions)
+      : part.partType === 'space'
+        ? 'ESPACIO [ _ ]'
+        : `Indice ${getRuleIndexPreview(part)}`
+
+  const chipTone =
+    part.partType === 'field'
+      ? 'border-slate-200 bg-slate-100 text-slate-700'
+      : part.partType === 'index'
+        ? 'border-green-300 bg-green-100 text-green-800'
+        : 'border-green-200 bg-green-50 text-green-800'
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`${sharedChipClassName} ${chipTone}`}
+    >
+      <button
+        type="button"
+        className="inline-flex h-6 w-5 items-center justify-center rounded text-slate-400 transition hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+        {...attributes}
+        {...listeners}
+        disabled={saving}
+        aria-label={`Mover ${chipLabel}`}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <span>{chipLabel}</span>
+      <button
+        type="button"
+        className="inline-flex h-6 w-5 items-center justify-center rounded text-slate-500 transition hover:bg-white/70 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={() => onRemove(nodeId, part.id)}
+        disabled={saving}
+        aria-label={`Eliminar ${chipLabel}`}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
 
 const employeeNameCollator = new Intl.Collator('es', {
   sensitivity: 'base',
@@ -1131,6 +1691,23 @@ function createRulePartDraft(partType: RulePartTypeDraft, fieldKey = '', literal
   }
 }
 
+function createRulePartFromPalette(
+  sourceKind: RulePaletteItemKind,
+  fieldKey: string,
+  fallbackFieldKey: string,
+): ClassificationRuleNamePartDraft {
+  if (sourceKind === 'index') {
+    return createRulePartDraft('index')
+  }
+  if (sourceKind === 'space') {
+    return createRulePartDraft('space', '', ' ')
+  }
+  if (sourceKind === 'literal') {
+    return createRulePartDraft('literal', '', '')
+  }
+  return createRulePartDraft('field', fieldKey || fallbackFieldKey)
+}
+
 function getRuleIndexPreview(part: ClassificationRuleNamePartDraft): string {
   if (part.indexDirection === 'incremental') {
     return part.indexKind === 'alphabetic' ? '[A+]' : '[0+]'
@@ -1212,7 +1789,7 @@ function mapRuleToDraftNodes(rule: ClassificationRule | null | undefined, fieldO
             : nodeType === 'folder'
               ? 'use_existing'
               : null,
-        nameParts: mappedParts.length > 0 ? mappedParts : [createRulePartDraft('literal', '', nodeType === 'folder' ? 'Carpeta' : 'Documento')],
+        nameParts: mappedParts,
       }
     })
 
@@ -1271,6 +1848,21 @@ function buildRuleNodePreview(node: ClassificationRuleNodeDraft, fieldOptions: R
     .join('')
   const compact = text.replace(/\s+/g, ' ').trim()
   return compact || '(vacio)'
+}
+
+function buildRulePathPreview(
+  nodes: ClassificationRuleNodeDraft[],
+  fieldOptions: RuleFieldOption[],
+): { folders: string[]; fileName: string } {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    return { folders: [], fileName: '(archivo)' }
+  }
+  const folderNodes = nodes.slice(0, Math.max(nodes.length - 1, 0))
+  const fileNode = nodes[nodes.length - 1] || null
+  return {
+    folders: folderNodes.map((node) => buildRuleNodePreview(node, fieldOptions)),
+    fileName: fileNode ? buildRuleNodePreview(fileNode, fieldOptions) : '(archivo)',
+  }
 }
 
 function resolveRuleStatusLabel(status: RuleStatus | undefined): string {
@@ -1466,6 +2058,7 @@ function BackofficeApp() {
   const [classificationRuleTemplateName, setClassificationRuleTemplateName] = useState('')
   const [classificationRuleFieldOptions, setClassificationRuleFieldOptions] = useState<RuleFieldOption[]>([])
   const [classificationRuleNodes, setClassificationRuleNodes] = useState<ClassificationRuleNodeDraft[]>([])
+  const [classificationRuleActiveOverlay, setClassificationRuleActiveOverlay] = useState<RuleDragOverlayChipDraft | null>(null)
   const [classificationRuleError, setClassificationRuleError] = useState('')
   const [classificationRuleSuccess, setClassificationRuleSuccess] = useState('')
   const [processingPreferencesLoading, setProcessingPreferencesLoading] = useState(false)
@@ -1923,6 +2516,7 @@ function BackofficeApp() {
     setClassificationRuleTemplateName('')
     setClassificationRuleFieldOptions([])
     setClassificationRuleNodes([])
+    setClassificationRuleActiveOverlay(null)
     setClassificationRuleError('')
     setClassificationRuleSuccess('')
   }, [])
@@ -2006,40 +2600,6 @@ function BackofficeApp() {
     setClassificationRuleSuccess('')
   }, [classificationRuleFieldOptions])
 
-  const addClassificationRuleNamePart = useCallback((nodeId: string, partType: RulePartTypeDraft) => {
-    setClassificationRuleNodes((prev) =>
-      prev.map((node) => {
-        if (node.id !== nodeId) {
-          return node
-        }
-        const defaultField = classificationRuleFieldOptions[0]?.key || ''
-        return {
-          ...node,
-          nameParts: [
-            ...node.nameParts,
-            partType === 'field'
-              ? createRulePartDraft('field', defaultField)
-              : partType === 'index'
-                ? createRulePartDraft('index')
-              : partType === 'space'
-                ? createRulePartDraft('space', '', ' ')
-                : createRulePartDraft('literal', '', ''),
-          ],
-        }
-      }),
-    )
-    setClassificationRuleError('')
-    setClassificationRuleSuccess('')
-  }, [classificationRuleFieldOptions])
-
-  const updateClassificationRuleNodePolicy = useCallback((nodeId: string, nextPolicy: 'use_existing' | 'create_new') => {
-    setClassificationRuleNodes((prev) =>
-      prev.map((node) => (node.id === nodeId && node.nodeType === 'folder' ? { ...node, conflictPolicy: nextPolicy } : node)),
-    )
-    setClassificationRuleError('')
-    setClassificationRuleSuccess('')
-  }, [])
-
   const updateClassificationRuleNamePart = useCallback(
     (nodeId: string, partId: string, updater: (part: ClassificationRuleNamePartDraft) => ClassificationRuleNamePartDraft) => {
       setClassificationRuleNodes((prev) =>
@@ -2065,16 +2625,274 @@ function BackofficeApp() {
         if (node.id !== nodeId) {
           return node
         }
-        const filtered = node.nameParts.filter((part) => part.id !== partId)
         return {
           ...node,
-          nameParts: filtered.length > 0 ? filtered : [createRulePartDraft('literal', '', node.nodeType === 'folder' ? 'Carpeta' : 'Documento')],
+          nameParts: node.nameParts.filter((part) => part.id !== partId),
         }
       }),
     )
     setClassificationRuleError('')
     setClassificationRuleSuccess('')
   }, [])
+
+  const addClassificationRulePart = useCallback(
+    (nodeId: string, sourceKind: RulePaletteItemKind, sourceFieldKey = '') => {
+      const fallbackField = classificationRuleFieldOptions[0]?.key || ''
+      const newPart = createRulePartFromPalette(sourceKind, sourceFieldKey, fallbackField)
+      setClassificationRuleNodes((prev) =>
+        prev.map((node) => {
+          if (node.id !== nodeId) {
+            return node
+          }
+          return {
+            ...node,
+            nameParts: [...node.nameParts, newPart],
+          }
+        }),
+      )
+      setClassificationRuleError('')
+      setClassificationRuleSuccess('')
+    },
+    [classificationRuleFieldOptions],
+  )
+
+  const updateClassificationRuleLiteralPart = useCallback((nodeId: string, partId: string, nextValue: string) => {
+    setClassificationRuleNodes((prev) =>
+      prev.map((node) => {
+        if (node.id !== nodeId) {
+          return node
+        }
+        return {
+          ...node,
+          nameParts: node.nameParts.map((part) => (part.id === partId ? { ...part, literalValue: nextValue } : part)),
+        }
+      }),
+    )
+    setClassificationRuleError('')
+    setClassificationRuleSuccess('')
+  }, [])
+
+  const handleClassificationRuleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      const activeId = String(event.active.id)
+      if (activeId.startsWith(`${RULE_DND_SOURCE_PREFIX}:`)) {
+        const sourceKindRaw = event.active.data.current?.sourceKind
+        const sourceKind: RulePaletteItemKind =
+          sourceKindRaw === 'index' || sourceKindRaw === 'space' || sourceKindRaw === 'field' || sourceKindRaw === 'literal'
+            ? sourceKindRaw
+            : 'field'
+        const rawLabel = typeof event.active.data.current?.label === 'string' ? event.active.data.current.label.trim() : ''
+        const fallbackLabel =
+          sourceKind === 'space'
+            ? 'ESPACIO [ _ ]'
+            : sourceKind === 'index'
+              ? 'Indice'
+              : sourceKind === 'literal'
+                ? 'Texto'
+                : 'Campo'
+        setClassificationRuleActiveOverlay({
+          kind: sourceKind,
+          label: rawLabel || fallbackLabel,
+        })
+        return
+      }
+
+      const activePart = parseRulePartDndId(activeId)
+      if (!activePart) {
+        setClassificationRuleActiveOverlay(null)
+        return
+      }
+
+      const sourceNode = classificationRuleNodes.find((node) => node.id === activePart.nodeId)
+      const sourcePart = sourceNode?.nameParts.find((part) => part.id === activePart.partId)
+      if (!sourcePart) {
+        setClassificationRuleActiveOverlay(null)
+        return
+      }
+
+      if (sourcePart.partType === 'field') {
+        setClassificationRuleActiveOverlay({
+          kind: 'field',
+          label: resolveRuleFieldLabel(sourcePart.fieldKey, classificationRuleFieldOptions),
+        })
+        return
+      }
+      if (sourcePart.partType === 'index') {
+        setClassificationRuleActiveOverlay({
+          kind: 'index',
+          label: `Indice ${getRuleIndexPreview(sourcePart)}`,
+        })
+        return
+      }
+      if (sourcePart.partType === 'space') {
+        setClassificationRuleActiveOverlay({
+          kind: 'space',
+          label: 'ESPACIO [ _ ]',
+        })
+        return
+      }
+      setClassificationRuleActiveOverlay({
+        kind: 'literal',
+        label: sourcePart.literalValue.trim() || 'Texto',
+      })
+    },
+    [classificationRuleFieldOptions, classificationRuleNodes],
+  )
+
+  const handleClassificationRuleDragCancel = useCallback(() => {
+    setClassificationRuleActiveOverlay(null)
+  }, [])
+
+  const handleClassificationRuleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      setClassificationRuleActiveOverlay(null)
+      if (!over) {
+        return
+      }
+
+      const activeId = String(active.id)
+      const overId = String(over.id)
+      const activePart = parseRulePartDndId(activeId)
+      const overPart = parseRulePartDndId(overId)
+      const overDrop = parseRuleDropDndId(overId)
+      const targetNodeId = overPart?.nodeId || overDrop?.nodeId || null
+
+      if (!targetNodeId) {
+        return
+      }
+
+      if (activePart) {
+        setClassificationRuleNodes((prev) => {
+          const fromNodeId = activePart.nodeId
+          const fromPartId = activePart.partId
+          const toPartId = overPart?.partId || null
+
+          if (fromNodeId === targetNodeId) {
+            return prev.map((node) => {
+              if (node.id !== fromNodeId) {
+                return node
+              }
+              const oldIndex = node.nameParts.findIndex((part) => part.id === fromPartId)
+              if (oldIndex < 0) {
+                return node
+              }
+              if (!toPartId) {
+                const destination = node.nameParts.length - 1
+                if (destination === oldIndex) {
+                  return node
+                }
+                return {
+                  ...node,
+                  nameParts: arrayMove(node.nameParts, oldIndex, destination),
+                }
+              }
+              const newIndex = node.nameParts.findIndex((part) => part.id === toPartId)
+              if (newIndex < 0 || newIndex === oldIndex) {
+                return node
+              }
+              return {
+                ...node,
+                nameParts: arrayMove(node.nameParts, oldIndex, newIndex),
+              }
+            })
+          }
+
+          let movingPart: ClassificationRuleNamePartDraft | null = null
+          const withoutSource = prev.map((node) => {
+            if (node.id !== fromNodeId) {
+              return node
+            }
+            const filtered = node.nameParts.filter((part) => {
+              if (part.id === fromPartId) {
+                movingPart = part
+                return false
+              }
+              return true
+            })
+            return {
+              ...node,
+              nameParts: filtered,
+            }
+          })
+
+          if (!movingPart) {
+            return prev
+          }
+
+          return withoutSource.map((node) => {
+            if (node.id !== targetNodeId) {
+              return node
+            }
+            const nextParts = [...node.nameParts]
+            if (toPartId) {
+              const insertIndex = nextParts.findIndex((part) => part.id === toPartId)
+              if (insertIndex >= 0) {
+                nextParts.splice(insertIndex, 0, movingPart as ClassificationRuleNamePartDraft)
+              } else {
+                nextParts.push(movingPart as ClassificationRuleNamePartDraft)
+              }
+            } else {
+              nextParts.push(movingPart as ClassificationRuleNamePartDraft)
+            }
+            return {
+              ...node,
+              nameParts: nextParts,
+            }
+          })
+        })
+        setClassificationRuleError('')
+        setClassificationRuleSuccess('')
+        return
+      }
+
+      if (!activeId.startsWith(`${RULE_DND_SOURCE_PREFIX}:`)) {
+        return
+      }
+
+      const sourceKindRaw = active.data.current?.sourceKind
+      const sourceKind: RulePaletteItemKind =
+        sourceKindRaw === 'index' || sourceKindRaw === 'space' || sourceKindRaw === 'field' || sourceKindRaw === 'literal'
+          ? sourceKindRaw
+          : 'field'
+      const fieldKey = typeof active.data.current?.fieldKey === 'string' ? active.data.current.fieldKey : ''
+      const fallbackField = classificationRuleFieldOptions[0]?.key || ''
+      const newPart = createRulePartFromPalette(sourceKind, fieldKey, fallbackField)
+
+      setClassificationRuleNodes((prev) =>
+        prev.map((node) => {
+          if (node.id !== targetNodeId) {
+            return node
+          }
+          const nextParts = [...node.nameParts]
+          if (overPart?.partId) {
+            const insertIndex = nextParts.findIndex((part) => part.id === overPart.partId)
+            if (insertIndex >= 0) {
+              nextParts.splice(insertIndex, 0, newPart)
+            } else {
+              nextParts.push(newPart)
+            }
+          } else {
+            nextParts.push(newPart)
+          }
+          return {
+            ...node,
+            nameParts: nextParts,
+          }
+        }),
+      )
+      setClassificationRuleError('')
+      setClassificationRuleSuccess('')
+    },
+    [classificationRuleFieldOptions],
+  )
+
+  const closeClassificationRuleEditor = useCallback(() => {
+    if (classificationRuleMandatory) {
+      setTemplateSuccess('La plantilla quedó guardada pero no podra usarse en Procesar hasta completar su regla.')
+    }
+    resetClassificationRuleEditor()
+  }, [classificationRuleMandatory, resetClassificationRuleEditor])
 
   const saveClassificationRuleEditor = useCallback(async () => {
     const templateId = classificationRuleTemplateId.trim()
@@ -2088,6 +2906,17 @@ function BackofficeApp() {
       return
     }
 
+    if (classificationRuleNodes.some((node) => node.nameParts.length === 0)) {
+      setClassificationRuleError('Hay niveles sin configurar.')
+      const exitWithoutSaving = window.confirm(
+        'Hay niveles sin configurar.\n\nAceptar: salir sin guardar cambios.\nCancelar: continuar editando.',
+      )
+      if (exitWithoutSaving) {
+        closeClassificationRuleEditor()
+      }
+      return
+    }
+
     for (let nodeIndex = 0; nodeIndex < classificationRuleNodes.length; nodeIndex += 1) {
       const node = classificationRuleNodes[nodeIndex]
       const shouldBeFolder = nodeIndex < classificationRuleNodes.length - 1
@@ -2097,10 +2926,6 @@ function BackofficeApp() {
       }
       if (!shouldBeFolder && node.nodeType !== 'file') {
         setClassificationRuleError('El ultimo nodo debe ser un archivo.')
-        return
-      }
-      if (node.nameParts.length === 0) {
-        setClassificationRuleError('Cada nodo debe tener al menos una parte de nombre.')
         return
       }
       for (const part of node.nameParts) {
@@ -2153,14 +2978,7 @@ function BackofficeApp() {
     setClassificationRuleSuccess('Regla de clasificacion guardada.')
     await loadTemplatesForTenant(true)
     resetClassificationRuleEditor()
-  }, [classificationRuleNodes, classificationRuleTemplateId, loadTemplatesForTenant, resetClassificationRuleEditor, tenantId])
-
-  const closeClassificationRuleEditor = useCallback(() => {
-    if (classificationRuleMandatory) {
-      setTemplateSuccess('La plantilla quedó guardada pero no podra usarse en Procesar hasta completar su regla.')
-    }
-    resetClassificationRuleEditor()
-  }, [classificationRuleMandatory, resetClassificationRuleEditor])
+  }, [classificationRuleNodes, classificationRuleTemplateId, closeClassificationRuleEditor, loadTemplatesForTenant, resetClassificationRuleEditor, tenantId])
 
   const saveTemplateEditor = useCallback(async () => {
     if (!templateEditor.name.trim()) {
@@ -3070,6 +3888,76 @@ function BackofficeApp() {
     () => templates.filter((template) => resolveTemplateMode(template) === 'document'),
     [templates],
   )
+  const classificationRulePathPreview = useMemo(
+    () => buildRulePathPreview(classificationRuleNodes, classificationRuleFieldOptions),
+    [classificationRuleNodes, classificationRuleFieldOptions],
+  )
+  const classificationRuleTemplateLabel = useMemo(
+    () => classificationRuleTemplateName.trim() || 'N/D',
+    [classificationRuleTemplateName],
+  )
+  const classificationRuleDndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+  )
+  const classificationRulePaletteItems = useMemo<RulePaletteItem[]>(
+    () => [
+      ...classificationRuleFieldOptions.map((field) => {
+        const normalized = field.label.toLowerCase()
+        const icon: LucideIcon =
+          normalized.includes('fecha') || normalized.includes('mes') || normalized.includes('año')
+            ? CalendarDays
+            : normalized.includes('nombre')
+              ? Type
+              : Tags
+        return {
+          id: `field:${field.key}`,
+          label: field.label,
+          kind: 'field' as const,
+          fieldKey: field.key,
+          icon,
+        }
+      }),
+      {
+        id: 'space',
+        label: 'ESPACIO [ _ ]',
+        kind: 'space' as const,
+        icon: Type,
+        highlighted: true,
+      },
+      {
+        id: 'index',
+        label: 'Indice',
+        kind: 'index' as const,
+        icon: ListOrdered,
+      },
+      {
+        id: 'literal',
+        label: 'Texto',
+        kind: 'literal' as const,
+        icon: Type,
+      },
+    ],
+    [classificationRuleFieldOptions],
+  )
+  const folderRuleNodes = useMemo(
+    () => classificationRuleNodes.filter((node) => node.nodeType === 'folder'),
+    [classificationRuleNodes],
+  )
+  const createIfMissingEnabled = useMemo(
+    () => folderRuleNodes.length > 0 && folderRuleNodes.every((node) => node.conflictPolicy === 'create_new'),
+    [folderRuleNodes],
+  )
+  const firstIndexEditorTarget = useMemo(() => {
+    for (const node of classificationRuleNodes) {
+      const found = node.nameParts.find((part) => part.partType === 'index')
+      if (found) {
+        return { nodeId: node.id, part: found }
+      }
+    }
+    return null
+  }, [classificationRuleNodes])
   const visibleEmployees = useMemo(() => {
     const query = normalizeSearchText(collaboratorSearch)
     const filtered = employees.filter((employee) => normalizeSearchText(employee.name).includes(query))
@@ -3097,7 +3985,7 @@ function BackofficeApp() {
             aria-expanded={mobileMenuOpen}
             onClick={() => setMobileMenuOpen(true)}
           >
-            <span className="material-symbols-outlined" aria-hidden="true">
+            <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
               menu
             </span>
           </button>
@@ -3161,7 +4049,7 @@ function BackofficeApp() {
               <span className="brand-text">RECIBOX</span>
             </div>
             <button type="button" className="mobile-menu-close" aria-label="Cerrar menu" onClick={() => setMobileMenuOpen(false)}>
-              <span className="material-symbols-outlined" aria-hidden="true">
+              <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                 close
               </span>
             </button>
@@ -3177,7 +4065,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">grid_view</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">grid_view</span>
                 </span>
                 <span>Cuentas</span>
               </span>
@@ -3192,7 +4080,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">group</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">group</span>
                 </span>
                 <span>Colaboradores</span>
               </span>
@@ -3207,7 +4095,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">sync</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">sync</span>
                 </span>
                 <span>Procesar</span>
               </span>
@@ -3215,7 +4103,7 @@ function BackofficeApp() {
             <button type="button" className="menu-item menu-item-disabled">
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">assessment</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">assessment</span>
                 </span>
                 <span>Reportes</span>
               </span>
@@ -3230,7 +4118,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">settings</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">settings</span>
                 </span>
                 <span>Configuracion</span>
               </span>
@@ -3239,7 +4127,7 @@ function BackofficeApp() {
           <div className="mobile-menu-footer">
             <div className="mobile-user">
               <div className="mobile-user-avatar">
-                <span className="material-symbols-outlined" aria-hidden="true">
+                <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                   person
                 </span>
               </div>
@@ -3265,7 +4153,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">grid_view</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">grid_view</span>
                 </span>
                 <span>Cuentas</span>
               </span>
@@ -3277,7 +4165,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">group</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">group</span>
                 </span>
                 <span>Colaboradores</span>
               </span>
@@ -3289,7 +4177,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">sync</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">sync</span>
                 </span>
                 <span>Procesar</span>
               </span>
@@ -3301,7 +4189,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">analytics</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">analytics</span>
                 </span>
                 <span>Reportes</span>
               </span>
@@ -3313,7 +4201,7 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span className="material-symbols-outlined">settings</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">settings</span>
                 </span>
                 <span>Configuracion</span>
               </span>
@@ -3397,14 +4285,14 @@ function BackofficeApp() {
                             }
                           }}
                         >
-                          <span className="material-symbols-outlined account-action-symbol" aria-hidden="true">
+                          <span translate="no" className="material-symbols-outlined notranslate account-action-symbol" aria-hidden="true">
                             open_in_new
                           </span>
                           Abrir carpeta
                         </button>
                         <button type="button" className="disconnect-btn" onClick={disconnectGoogleDrive} disabled={actionLoading}>
                           {!actionLoading && (
-                            <span className="material-symbols-outlined account-action-symbol" aria-hidden="true">
+                            <span translate="no" className="material-symbols-outlined notranslate account-action-symbol" aria-hidden="true">
                               logout
                             </span>
                           )}
@@ -3956,7 +4844,7 @@ function BackofficeApp() {
                   </div>
                   <div className="collaborator-toolbar">
                     <div className="collaborator-search-wrap">
-                      <span className="material-symbols-outlined collaborator-search-icon" aria-hidden="true">
+                      <span translate="no" className="material-symbols-outlined notranslate collaborator-search-icon" aria-hidden="true">
                         search
                       </span>
                       <input
@@ -4125,7 +5013,7 @@ function BackofficeApp() {
             <div className="tutorial-structure-header">
               <div className="tutorial-structure-brand">
                 <div className="tutorial-structure-logo">
-                  <span className="material-symbols-outlined" aria-hidden="true">
+                  <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                     folder_managed
                   </span>
                 </div>
@@ -4149,7 +5037,7 @@ function BackofficeApp() {
                 <section className="tutorial-tree-card" aria-label="Estructura de carpetas">
                   <div className="tutorial-tree-root tutorial-tree-item-main">
                     <div className="tutorial-tree-root-icon">
-                      <span className="material-symbols-outlined" aria-hidden="true">
+                      <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                         folder
                       </span>
                     </div>
@@ -4161,7 +5049,7 @@ function BackofficeApp() {
 
                   <div className="tutorial-tree-node tutorial-tree-node-level-1">
                     <span className="tutorial-node-icon" aria-hidden="true">
-                      <span className="material-symbols-outlined">folder_data</span>
+                      <span translate="no" className="material-symbols-outlined notranslate">folder_data</span>
                     </span>
                     <div className="tutorial-tree-copy">
                       <p className="tutorial-node-title">#0 INPUT</p>
@@ -4171,7 +5059,7 @@ function BackofficeApp() {
 
                   <div className="tutorial-tree-node tutorial-tree-node-level-1">
                     <span className="tutorial-node-icon" aria-hidden="true">
-                      <span className="material-symbols-outlined">groups</span>
+                      <span translate="no" className="material-symbols-outlined notranslate">groups</span>
                     </span>
                     <div className="tutorial-tree-copy">
                       <p className="tutorial-node-title">Carpeta de colaborador</p>
@@ -4181,7 +5069,7 @@ function BackofficeApp() {
 
                   <div className="tutorial-tree-node tutorial-tree-node-level-2">
                     <span className="tutorial-node-icon tutorial-node-icon-min" aria-hidden="true">
-                      <span className="material-symbols-outlined">calendar_month</span>
+                      <span translate="no" className="material-symbols-outlined notranslate">calendar_month</span>
                     </span>
                     <div className="tutorial-tree-copy">
                       <p className="tutorial-tree-subnode">Año</p>
@@ -4190,7 +5078,7 @@ function BackofficeApp() {
 
                   <div className="tutorial-tree-node tutorial-tree-node-level-3">
                     <span className="tutorial-node-icon tutorial-node-icon-min" aria-hidden="true">
-                      <span className="material-symbols-outlined">description</span>
+                      <span translate="no" className="material-symbols-outlined notranslate">description</span>
                     </span>
                     <div className="tutorial-tree-copy">
                       <p className="tutorial-tree-subnode tutorial-tree-subnode-italic">
@@ -4203,7 +5091,7 @@ function BackofficeApp() {
                 <div className="tutorial-info-col">
                   <section className="tutorial-info-card tutorial-info-card-primary" aria-label="Regla principal">
                     <h4>
-                      <span className="material-symbols-outlined" aria-hidden="true">
+                      <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                         info
                       </span>
                       Funcionamiento automatico
@@ -4220,7 +5108,7 @@ function BackofficeApp() {
 
                   <section className="tutorial-info-card" aria-label="Pregunta frecuente">
                     <h4>
-                      <span className="material-symbols-outlined" aria-hidden="true">
+                      <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
                         auto_fix_high
                       </span>
                       ¿Como funciona el flujo?
@@ -5006,269 +5894,329 @@ function BackofficeApp() {
       )}
 
       {showClassificationRuleModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
-          <div className="modal-card classification-rule-modal">
-            <div className="settings-card-header">
-              <h3>Regla de clasificacion</h3>
-              {classificationRuleMandatory && <span className="settings-chip">Obligatorio</span>}
-            </div>
-            <p className="settings-preview">
-              Plantilla: <strong>{classificationRuleTemplateName || 'N/D'}</strong>
-            </p>
-            <p className="settings-preview">
-              La raíz es fija: <strong>RECIBOX</strong>. Definí carpetas anidadas y el nombre final del archivo.
-            </p>
-
-            {classificationRuleLoading ? (
-              <p className="settings-preview">Cargando regla...</p>
-            ) : (
-              <div className="classification-rule-body">
-                <p className="classification-rule-root">RECIBOX</p>
-                <div className="classification-rule-nodes">
-                  {classificationRuleNodes.map((node, nodeIndex) => (
-                    <article key={node.id} className="classification-rule-node-card">
-                      <div className="classification-rule-node-header">
-                        <strong>{node.nodeType === 'folder' ? `Carpeta nivel ${nodeIndex + 1}` : 'Archivo final'}</strong>
-                        {node.nodeType === 'folder' && (
-                          <button
-                            type="button"
-                            className="link-btn link-btn-danger"
-                            onClick={() => removeClassificationRuleFolderNode(node.id)}
-                            disabled={classificationRuleSaving}
-                          >
-                            Eliminar nivel
-                          </button>
-                        )}
-                      </div>
-                      {node.nodeType === 'folder' && (
-                        <div className="settings-field">
-                          <label>Si la carpeta ya existe</label>
-                          <select
-                            className="year-select"
-                            value={node.conflictPolicy || 'use_existing'}
-                            onChange={(event) =>
-                              updateClassificationRuleNodePolicy(
-                                node.id,
-                                event.target.value === 'create_new' ? 'create_new' : 'use_existing',
-                              )
-                            }
-                            disabled={classificationRuleSaving}
-                          >
-                            <option value="use_existing">Utilizar carpeta existente</option>
-                            <option value="create_new">Crear nueva carpeta</option>
-                          </select>
-                        </div>
-                      )}
-                      <div className="classification-rule-parts">
-                        {node.nameParts.map((part) => (
-                          <div key={part.id} className="classification-rule-part-row">
-                            <select
-                              className="year-select"
-                              value={part.partType}
-                              onChange={(event) =>
-                                updateClassificationRuleNamePart(node.id, part.id, () =>
-                                  event.target.value === 'literal'
-                                    ? createRulePartDraft('literal', '', '')
-                                    : event.target.value === 'index'
-                                      ? createRulePartDraft('index')
-                                    : event.target.value === 'space'
-                                      ? createRulePartDraft('space', '', ' ')
-                                      : createRulePartDraft('field', classificationRuleFieldOptions[0]?.key || ''),
-                                )
-                              }
-                              disabled={classificationRuleSaving}
-                            >
-                              <option value="field">Campo</option>
-                              <option value="literal">Texto</option>
-                              <option value="index">Indice</option>
-                              <option value="space">Espacio</option>
-                            </select>
-                            {part.partType === 'field' ? (
-                              <select
-                                className="year-select"
-                                value={part.fieldKey}
-                                onChange={(event) =>
-                                  updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                    ...current,
-                                    fieldKey: event.target.value,
-                                  }))
-                                }
-                                disabled={classificationRuleSaving || classificationRuleFieldOptions.length === 0}
-                              >
-                                {classificationRuleFieldOptions.length === 0 && <option value="">Sin campos</option>}
-                                {classificationRuleFieldOptions.map((field) => (
-                                  <option key={`${node.id}-${part.id}-${field.key}`} value={field.key}>
-                                    {field.label}
-                                    {field.required ? ' (requerido)' : ''}
-                                    {field.previewValue ? ` -> ${field.previewValue}` : ''}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : part.partType === 'literal' ? (
-                              <input
-                                className="settings-input"
-                                value={part.literalValue}
-                                onChange={(event) =>
-                                  updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                    ...current,
-                                    literalValue: event.target.value,
-                                  }))
-                                }
-                                placeholder="Ej. #$%&/()@ texto"
-                                disabled={classificationRuleSaving}
-                              />
-                            ) : part.partType === 'index' ? (
-                              <div className="classification-rule-index-editor">
-                                <select
-                                  className="year-select"
-                                  value={part.indexKind}
-                                  onChange={(event) =>
-                                    updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                      ...current,
-                                      indexKind: event.target.value === 'alphabetic' ? 'alphabetic' : 'numeric',
-                                    }))
-                                  }
-                                  disabled={classificationRuleSaving}
-                                >
-                                  {ruleIndexKindOptions.map((option) => (
-                                    <option key={`${part.id}-kind-${option.value}`} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <select
-                                  className="year-select"
-                                  value={part.indexDirection}
-                                  onChange={(event) =>
-                                    updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                      ...current,
-                                      indexDirection: event.target.value === 'decremental' ? 'decremental' : 'incremental',
-                                    }))
-                                  }
-                                  disabled={classificationRuleSaving}
-                                >
-                                  {ruleIndexDirectionOptions.map((option) => (
-                                    <option key={`${part.id}-direction-${option.value}`} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                {part.indexDirection === 'decremental' &&
-                                  (part.indexKind === 'numeric' ? (
-                                    <input
-                                      className="settings-input"
-                                      value={part.indexStartNumeric}
-                                      onChange={(event) =>
-                                        updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                          ...current,
-                                          indexStartNumeric: event.target.value,
-                                        }))
-                                      }
-                                      placeholder="Inicio 0-9999"
-                                      disabled={classificationRuleSaving}
-                                    />
-                                  ) : (
-                                    <input
-                                      className="settings-input"
-                                      value={part.indexStartAlpha}
-                                      onChange={(event) =>
-                                        updateClassificationRuleNamePart(node.id, part.id, (current) => ({
-                                          ...current,
-                                          indexStartAlpha: event.target.value.toUpperCase(),
-                                        }))
-                                      }
-                                      placeholder="Inicio A-Z"
-                                      disabled={classificationRuleSaving}
-                                    />
-                                  ))}
-                              </div>
-                            ) : (
-                              <div className="settings-fixed-value">Espacio</div>
-                            )}
-                            <button
-                              type="button"
-                              className="link-btn link-btn-danger"
-                              onClick={() => removeClassificationRuleNamePart(node.id, part.id)}
-                              disabled={classificationRuleSaving}
-                            >
-                              Quitar
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="settings-preview">
-                        Vista previa nodo: {buildRuleNodePreview(node, classificationRuleFieldOptions)}
-                      </p>
-                      <div className="classification-rule-node-actions">
-                        <button
-                          type="button"
-                          className="modal-secondary"
-                          onClick={() => addClassificationRuleNamePart(node.id, 'field')}
-                          disabled={classificationRuleSaving || classificationRuleFieldOptions.length === 0}
-                        >
-                          + Campo
-                        </button>
-                        <button
-                          type="button"
-                          className="modal-secondary"
-                          onClick={() => addClassificationRuleNamePart(node.id, 'literal')}
-                          disabled={classificationRuleSaving}
-                        >
-                          + Texto
-                        </button>
-                        <button
-                          type="button"
-                          className="modal-secondary"
-                          onClick={() => addClassificationRuleNamePart(node.id, 'index')}
-                          disabled={classificationRuleSaving}
-                        >
-                          + Indice
-                        </button>
-                        <button
-                          type="button"
-                          className="modal-secondary"
-                          onClick={() => addClassificationRuleNamePart(node.id, 'space')}
-                          disabled={classificationRuleSaving}
-                        >
-                          + Espacio
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+        <div className="fixed inset-0 z-[1000] bg-slate-900/35 p-2.5 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
+          <div className="mx-auto flex h-[min(90vh,860px)] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+            <header className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#3a5f0b] text-white">
+                  <SlidersHorizontal className="h-4.5 w-4.5" />
                 </div>
-                <div className="classification-rule-footer-actions">
-                  <button
-                    type="button"
-                    className="modal-secondary"
-                    onClick={addClassificationRuleFolderNode}
-                    disabled={classificationRuleSaving}
-                  >
-                    Agregar nivel de carpeta
-                  </button>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-extrabold tracking-tight text-slate-800 md:text-[22px]">Configurar Regla de Procesamiento</h3>
+                    {classificationRuleMandatory && <span className="inline-flex h-6 items-center rounded-full border border-blue-200 bg-blue-50 px-2 text-[11px] font-bold text-blue-700">Obligatorio</span>}
+                  </div>
+                  <p className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                    RECIBOX <ChevronRight className="h-3 w-3" /> Folder <ChevronRight className="h-3 w-3" /> File
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Plantilla: <strong className="text-slate-700">{classificationRuleTemplateLabel}</strong>
+                  </p>
                 </div>
               </div>
-            )}
-
-            {classificationRuleError && <p className="oauth-feedback error">{classificationRuleError}</p>}
-            {classificationRuleSuccess && <p className="oauth-feedback success">{classificationRuleSuccess}</p>}
-            <div className="modal-actions">
               <button
                 type="button"
-                className="modal-secondary"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-55"
                 onClick={closeClassificationRuleEditor}
                 disabled={classificationRuleSaving}
+                aria-label="Cerrar editor de regla"
               >
-                {classificationRuleMandatory ? 'Cerrar (pendiente)' : 'Cancelar'}
+                <X className="h-5 w-5" />
               </button>
-              <button
-                type="button"
-                className="modal-primary"
-                onClick={() => void saveClassificationRuleEditor()}
-                disabled={classificationRuleLoading || classificationRuleSaving}
-              >
-                {classificationRuleSaving ? 'Guardando...' : 'Guardar regla'}
-              </button>
-            </div>
+            </header>
+
+            <DndContext
+              sensors={classificationRuleDndSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleClassificationRuleDragStart}
+              onDragEnd={handleClassificationRuleDragEnd}
+              onDragCancel={handleClassificationRuleDragCancel}
+            >
+              <div className="grid min-h-0 flex-1 grid-cols-1 bg-slate-50 lg:grid-cols-[264px_minmax(0,1fr)]">
+                <aside className="min-w-[248px] overflow-x-hidden border-b border-slate-200 bg-slate-100/80 p-3.5 lg:border-b-0 lg:border-r">
+                  <p className="mb-2.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-slate-600">Campos dinámicos</p>
+                  <div className="grid max-h-[260px] gap-2 overflow-x-hidden overflow-y-auto pr-1 lg:max-h-none">
+                    {classificationRulePaletteItems.map((item) => (
+                      <RulePaletteChip
+                        key={item.id}
+                        item={item}
+                        disabled={classificationRuleSaving || classificationRuleLoading}
+                        metaText={
+                          item.kind === 'field'
+                            ? classificationRuleFieldOptions.find((field) => field.key === item.fieldKey)?.previewValue || ''
+                            : ''
+                        }
+                      />
+                    ))}
+                  </div>
+
+                  <div className="mt-3.5 rounded-lg border border-green-200 bg-green-50/70 p-3 lg:mt-5">
+                    <p className="mb-1.5 inline-flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.04em] text-green-800">
+                      <Info className="h-3.5 w-3.5" />
+                      Ayuda de sistema
+                    </p>
+                    <p className="text-xs leading-relaxed text-green-800/85">
+                      Arrastrá los campos a la ruta para automatizar la organización de tus archivos.
+                    </p>
+                  </div>
+                </aside>
+
+                <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 md:px-5">
+                    <h4 className="text-lg font-extrabold tracking-tight text-slate-800 md:text-xl">Constructor de Ruta Dinámica</h4>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <label className="inline-flex items-center gap-2.5 text-[11px] font-semibold text-slate-600">
+                        Crear si no existe
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={createIfMissingEnabled}
+                          onClick={() => {
+                            const nextEnabled = !createIfMissingEnabled
+                            setClassificationRuleNodes((prev) =>
+                              prev.map((node) =>
+                                node.nodeType === 'folder'
+                                  ? {
+                                      ...node,
+                                      conflictPolicy: nextEnabled ? 'create_new' : 'use_existing',
+                                    }
+                                  : node,
+                              ),
+                            )
+                          }}
+                          disabled={classificationRuleSaving || classificationRuleLoading || folderRuleNodes.length === 0}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                            createIfMissingEnabled ? 'border-green-700 bg-green-700' : 'border-slate-300 bg-slate-200'
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                              createIfMissingEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                            }`}
+                          />
+                        </button>
+                      </label>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 transition hover:border-slate-400"
+                        onClick={addClassificationRuleFolderNode}
+                        disabled={classificationRuleSaving || classificationRuleLoading}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Carpeta
+                      </button>
+                    </div>
+                  </div>
+
+                  {classificationRuleLoading ? (
+                    <div className="flex items-center justify-center p-6 text-sm font-semibold text-slate-500">Cargando regla...</div>
+                  ) : (
+                    <div className="space-y-4 overflow-y-auto px-4 py-4 md:px-5">
+                      <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-green-800">
+                          <GitBranchPlus className="h-4 w-4" />
+                        </span>
+                        <Folder className="h-4 w-4 text-slate-700" />
+                        <strong className="text-[13px] text-slate-800">RECIBOX</strong>
+                      </div>
+
+                      <div className="space-y-4">
+                        {classificationRuleNodes.map((node, nodeIndex) => (
+                          <RuleBuilderNodeCard
+                            key={node.id}
+                            node={node}
+                            nodeIndex={nodeIndex}
+                            fieldOptions={classificationRuleFieldOptions}
+                            paletteItems={classificationRulePaletteItems}
+                            saving={classificationRuleSaving}
+                            onLiteralChange={updateClassificationRuleLiteralPart}
+                            onRemovePart={removeClassificationRuleNamePart}
+                            onAddPart={addClassificationRulePart}
+                            onRemoveFolderLevel={removeClassificationRuleFolderNode}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <div className="inline-flex items-center gap-2.5">
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-700 text-white">
+                            <Settings className="h-3.5 w-3.5" />
+                          </span>
+                          <h5 className="text-base font-extrabold text-slate-800">Configuración del Índice</h5>
+                        </div>
+                        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+                          <button
+                            type="button"
+                            className={`rounded-md px-3 py-1 text-[11px] font-extrabold transition ${
+                              firstIndexEditorTarget?.part.indexKind === 'numeric'
+                                ? 'bg-green-100 text-green-800 shadow-sm'
+                                : 'text-slate-500'
+                            }`}
+                            onClick={() => {
+                              if (!firstIndexEditorTarget) {
+                                return
+                              }
+                              updateClassificationRuleNamePart(firstIndexEditorTarget.nodeId, firstIndexEditorTarget.part.id, (current) => ({
+                                ...current,
+                                indexKind: 'numeric',
+                              }))
+                            }}
+                            disabled={classificationRuleSaving || !firstIndexEditorTarget}
+                          >
+                            NUMÉRICO
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-md px-3 py-1 text-[11px] font-extrabold transition ${
+                              firstIndexEditorTarget?.part.indexKind === 'alphabetic'
+                                ? 'bg-green-100 text-green-800 shadow-sm'
+                                : 'text-slate-500'
+                            }`}
+                            onClick={() => {
+                              if (!firstIndexEditorTarget) {
+                                return
+                              }
+                              updateClassificationRuleNamePart(firstIndexEditorTarget.nodeId, firstIndexEditorTarget.part.id, (current) => ({
+                                ...current,
+                                indexKind: 'alphabetic',
+                              }))
+                            }}
+                            disabled={classificationRuleSaving || !firstIndexEditorTarget}
+                          >
+                            ALFABÉTICO
+                          </button>
+                        </div>
+                      </div>
+
+                      {!firstIndexEditorTarget ? (
+                        <p className="text-xs font-semibold text-slate-500">Agregá un chip de índice para configurar ordenación e inicio.</p>
+                      ) : (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-slate-600">Ordenación</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-bold transition ${
+                                  firstIndexEditorTarget.part.indexDirection === 'incremental'
+                                    ? 'border-green-300 bg-green-100 text-green-800'
+                                    : 'border-slate-200 bg-white text-slate-500'
+                                }`}
+                                onClick={() =>
+                                  updateClassificationRuleNamePart(firstIndexEditorTarget.nodeId, firstIndexEditorTarget.part.id, (current) => ({
+                                    ...current,
+                                    indexDirection: 'incremental',
+                                  }))
+                                }
+                                disabled={classificationRuleSaving}
+                              >
+                                <ArrowUp className="h-4 w-4" /> Ascendente
+                              </button>
+                              <button
+                                type="button"
+                                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-bold transition ${
+                                  firstIndexEditorTarget.part.indexDirection === 'decremental'
+                                    ? 'border-green-300 bg-green-100 text-green-800'
+                                    : 'border-slate-200 bg-white text-slate-500'
+                                }`}
+                                onClick={() =>
+                                  updateClassificationRuleNamePart(firstIndexEditorTarget.nodeId, firstIndexEditorTarget.part.id, (current) => ({
+                                    ...current,
+                                    indexDirection: 'decremental',
+                                  }))
+                                }
+                                disabled={classificationRuleSaving}
+                              >
+                                <ArrowDown className="h-4 w-4" /> Descendente
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-slate-600">Valor inicial</p>
+                            <label className="relative block">
+                              <input
+                                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pr-14 text-[13px] font-semibold text-slate-700 outline-none placeholder:text-slate-400 focus:border-green-500"
+                                value={
+                                  firstIndexEditorTarget.part.indexKind === 'alphabetic'
+                                    ? firstIndexEditorTarget.part.indexStartAlpha
+                                    : firstIndexEditorTarget.part.indexStartNumeric
+                                }
+                                onChange={(event) =>
+                                  updateClassificationRuleNamePart(firstIndexEditorTarget.nodeId, firstIndexEditorTarget.part.id, (current) =>
+                                    current.indexKind === 'alphabetic'
+                                      ? { ...current, indexStartAlpha: event.target.value.toUpperCase() }
+                                      : { ...current, indexStartNumeric: event.target.value },
+                                  )
+                                }
+                                placeholder={firstIndexEditorTarget.part.indexKind === 'alphabetic' ? 'A' : '001'}
+                                disabled={classificationRuleSaving}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
+                                Inicio
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    </div>
+                  )}
+                </section>
+              </div>
+              <DragOverlay modifiers={[snapCenterToCursor]}>
+                {classificationRuleActiveOverlay ? (
+                  <RuleDragOverlayChip
+                    label={classificationRuleActiveOverlay.label}
+                    kind={classificationRuleActiveOverlay.kind}
+                    overlay
+                  />
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+
+            {classificationRuleError && <p className="mx-4 mt-3 text-sm font-semibold text-red-600 md:mx-5">{classificationRuleError}</p>}
+            {classificationRuleSuccess && <p className="mx-4 mt-3 text-sm font-semibold text-green-700 md:mx-5">{classificationRuleSuccess}</p>}
+
+            <footer className="flex flex-col gap-3 border-t border-slate-200 bg-slate-100/90 px-4 py-3 md:flex-row md:items-end md:justify-between md:px-5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-slate-600">Vista previa del resultado</p>
+                <div className="mt-1.5 inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-semibold text-slate-700">
+                  <span>RECIBOX</span>
+                  {classificationRulePathPreview.folders.map((folder, index) => (
+                    <span key={`preview-folder-${index}`} className="inline-flex items-center gap-1">
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                      <span>{folder}</span>
+                    </span>
+                  ))}
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="inline-flex items-center gap-1 rounded-md border border-green-300 bg-green-100 px-2 py-1 text-green-800">
+                    <FileText className="h-3.5 w-3.5" />
+                    {classificationRulePathPreview.fileName}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center rounded-lg px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-200/70 disabled:cursor-not-allowed disabled:opacity-55"
+                  onClick={closeClassificationRuleEditor}
+                  disabled={classificationRuleSaving}
+                >
+                  {classificationRuleMandatory ? 'Cerrar (pendiente)' : 'Cancelar'}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#3a5f0b] px-5 text-sm font-extrabold text-white shadow-lg shadow-green-900/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                  onClick={() => void saveClassificationRuleEditor()}
+                  disabled={classificationRuleLoading || classificationRuleSaving}
+                >
+                  <Save className="h-4 w-4" />
+                  {classificationRuleSaving ? 'Guardando...' : 'Guardar Regla'}
+                </button>
+              </div>
+            </footer>
           </div>
         </div>
       )}
