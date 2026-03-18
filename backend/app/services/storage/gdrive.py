@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -14,7 +15,10 @@ from app.core.config import settings
 
 
 def _scopes() -> list[str]:
-    return [s.strip() for s in settings.google_oauth_scopes.split(",") if s.strip()]
+    raw = settings.google_oauth_scopes.strip()
+    if not raw:
+        return []
+    return [s for s in re.split(r"[\s,]+", raw) if s]
 
 
 def _get_service(*, tenant_id: str | None = None):

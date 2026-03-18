@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from secrets import choice
 from typing import Iterable
@@ -16,7 +17,10 @@ _PKCE_VERIFIER_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 
 
 def _scopes() -> list[str]:
-    return [s.strip() for s in settings.google_oauth_scopes.split(",") if s.strip()]
+    raw = settings.google_oauth_scopes.strip()
+    if not raw:
+        return []
+    return [s for s in re.split(r"[\s,]+", raw) if s]
 
 
 def _token_path(tenant_id: str) -> Path:
