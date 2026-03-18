@@ -14,8 +14,12 @@ dependencies = [
   "google-auth-oauthlib>=1.2",
   "pdfplumber>=0.11",
   "pymupdf>=1.24",
+  "pdf2image>=1.17.0",
+  "pytesseract>=0.3.10",
   "python-multipart>=0.0.9",
   "tenacity>=8.2",
+  "rq>=1.16",
+  "redis>=5.0",
   "firebase-admin>=6.5",
   "psycopg[binary]>=3.2",
 ]

@@ -42,9 +42,13 @@ export type PickerFoldersResponse = DriveFoldersResponse & {
 }
 
 export type TenantDriveConfig = {
-  drive_input_folder_id: string
-  drive_root_folder_id: string
+  tenant_id?: string
+  drive_input_folder_id: string | null
+  drive_root_folder_id: string | null
   drive_recibox_folder_id?: string | null
+  source?: string
+  has_custom_config?: boolean
+  updated_at?: string | null
 }
 
 export type FilenameCustomFormat = {
@@ -99,8 +103,14 @@ export type OAuthUnlinkResponse = {
   tenant_id: string
   revoked: boolean
   deleted_local_token: boolean
-  drive_config_cleared?: boolean
+  deleted_drive_config?: boolean
+  deleted_lock?: boolean
   tenant_disabled?: boolean
+  post_unlink?: {
+    oauth: OAuthStatusResponse
+    has_custom_drive_config: boolean
+    tenant_disabled: boolean
+  }
 }
 
 export type ReciboxStructureCheckResponse = {
@@ -119,6 +129,7 @@ export type ReciboxStructureCreateResponse = {
   root_folder: { id: string; name?: string }
   input_folder: { id: string; name?: string }
   tenant_config_updated: boolean
+  tenant_config?: TenantDriveConfig | null
 }
 
 export type RegisterAccountPayload = {
