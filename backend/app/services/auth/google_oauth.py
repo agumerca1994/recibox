@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from secrets import choice
 from typing import Iterable
@@ -16,7 +17,48 @@ _PKCE_VERIFIER_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 
 
 def _scopes() -> list[str]:
-    return [s.strip() for s in settings.google_oauth_scopes.split(",") if s.strip()]
+    return [s.strip() for s in settings.google_oauth_scopes.replace(",", " ").split() if s.strip()]
+
+
+def _scope_set(scopes: Iterable[str] | str | None) -> set[str]:
+    if isinstance(scopes, str):
+        values = scopes.replace(",", " ").split()
+    else:
+        values = scopes or []
+    return {scope.strip() for scope in values if scope and scope.strip()}
+
+
+def _stored_scope_set(tenant_id: str) -> set[str]:
+    path = _token_path(tenant_id)
+    if not path.exists():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+    return _scope_set(payload.get("scopes"))
+
+
+def _missing_scopes(tenant_id: str, creds: Credentials) -> list[str]:
+    required = _scope_set(_scopes())
+    granted = (
+        _stored_scope_set(tenant_id)
+        or _scope_set(getattr(creds, "granted_scopes", None))
+        or _scope_set(creds.scopes)
+    )
+    return sorted(required - granted)
+
+
+def _granted_scopes(tenant_id: str, creds: Credentials) -> list[str]:
+    return sorted(
+        _stored_scope_set(tenant_id)
+        or _scope_set(getattr(creds, "granted_scopes", None))
+        or _scope_set(creds.scopes)
+    )
+
+
+def _has_required_scopes(tenant_id: str, creds: Credentials) -> bool:
+    return not _missing_scopes(tenant_id, creds)
 
 
 def _token_path(tenant_id: str) -> Path:
@@ -45,6 +87,10 @@ def ensure_fresh_credentials(tenant_id: str) -> Credentials:
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
         save_credentials(tenant_id, creds)
+    if not _has_required_scopes(tenant_id, creds):
+        raise RuntimeError(
+            f"Tenant '{tenant_id}' token is missing required OAuth scopes. Re-link Google OAuth to continue."
+        )
     return creds
 
 
@@ -115,13 +161,18 @@ def get_token_status(tenant_id: str) -> dict:
         except Exception:
             pass
 
+    missing_scopes = _missing_scopes(tenant_id, creds)
+
     return {
         "tenant_id": tenant_id,
         "has_token": True,
-        "valid": bool(creds.valid),
+        "valid": bool(creds.valid and not missing_scopes),
         "expired": bool(creds.expired),
         "has_refresh_token": bool(creds.refresh_token),
         "expiry": creds.expiry.isoformat() if creds.expiry else None,
+        "granted_scopes": _granted_scopes(tenant_id, creds),
+        "missing_scopes": missing_scopes,
+        "scope_mismatch": bool(missing_scopes),
     }
 
 

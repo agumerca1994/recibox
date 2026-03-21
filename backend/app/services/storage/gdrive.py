@@ -42,6 +42,27 @@ def _get_service(*, tenant_id: str | None = None):
     return build("drive", "v3", credentials=creds)
 
 
+def get_file_metadata(
+    file_id: str,
+    *,
+    tenant_id: str | None = None,
+    fields: str = "id, name, mimeType, parents, driveId",
+) -> dict:
+    service = _get_service(tenant_id=tenant_id)
+    try:
+        return (
+            service.files()
+            .get(
+                fileId=file_id,
+                fields=fields,
+                supportsAllDrives=settings.drive_supports_all_drives,
+            )
+            .execute()
+        )
+    except HttpError as exc:
+        raise RuntimeError(f"Drive get metadata failed: {exc}") from exc
+
+
 def list_files_in_folder(
     folder_id: str,
     *,
@@ -55,21 +76,32 @@ def list_files_in_folder(
     if query_extra:
         q = f"{q} and {query_extra}"
 
+    drive_id = None
+    if folder_id != "root":
+        try:
+            folder_meta = get_file_metadata(folder_id, tenant_id=tenant_id, fields="id, driveId")
+        except Exception:
+            folder_meta = None
+        drive_id = (folder_meta or {}).get("driveId")
+
     page_token = None
     while True:
         try:
-            resp = (
-                service.files()
-                .list(
-                    q=q,
-                    pageSize=page_size or settings.drive_page_size,
-                    fields=fields,
-                    pageToken=page_token,
-                    supportsAllDrives=settings.drive_supports_all_drives,
-                    includeItemsFromAllDrives=settings.drive_include_items_from_all_drives,
-                )
-                .execute()
-            )
+            request_kwargs = {
+                "q": q,
+                "pageSize": page_size or settings.drive_page_size,
+                "fields": fields,
+                "pageToken": page_token,
+                "supportsAllDrives": settings.drive_supports_all_drives,
+                "includeItemsFromAllDrives": settings.drive_include_items_from_all_drives,
+            }
+            if drive_id:
+                request_kwargs["corpora"] = "drive"
+                request_kwargs["driveId"] = drive_id
+            elif settings.drive_include_items_from_all_drives:
+                request_kwargs["corpora"] = "allDrives"
+
+            resp = service.files().list(**request_kwargs).execute()
         except HttpError as exc:
             raise RuntimeError(f"Drive list failed: {exc}") from exc
 

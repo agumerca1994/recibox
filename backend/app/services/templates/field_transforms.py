@@ -7,7 +7,7 @@ from datetime import datetime
 
 VALID_TRANSFORM_OPERATIONS = {"trim", "replace", "remove_chars", "split", "case", "date_format"}
 VALID_CASE_MODES = {"upper", "lower", "title"}
-VALID_DATE_OUTPUT_FORMATS = {"DD", "MM", "YYYY", "MM/YYYY", "YYYY-MM", "MMM", "MMMM"}
+VALID_DATE_OUTPUT_FORMATS = {"DD", "MM", "YYYY", "MM/YYYY", "MM-YYYY", "YYYY-MM", "MMM", "MMMM"}
 SPANISH_MONTHS = {
     "enero": 1,
     "ene": 1,
@@ -137,7 +137,7 @@ def init_template_field_transforms_schema() -> None:
                   CONSTRAINT chk_template_field_transforms_case
                     CHECK (param_case IS NULL OR param_case IN ('upper', 'lower', 'title')),
                   CONSTRAINT chk_template_field_transforms_date
-                    CHECK (param_date_output IS NULL OR param_date_output IN ('DD', 'MM', 'YYYY', 'MM/YYYY', 'YYYY-MM', 'MMM', 'MMMM')),
+                    CHECK (param_date_output IS NULL OR param_date_output IN ('DD', 'MM', 'YYYY', 'MM/YYYY', 'MM-YYYY', 'YYYY-MM', 'MMM', 'MMMM')),
                   CONSTRAINT chk_template_field_transforms_split
                     CHECK (param_index IS NULL OR param_index >= 1)
                 )
@@ -153,6 +153,19 @@ def init_template_field_transforms_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS idx_template_field_transforms_template
                 ON template_field_transforms (template_id, field_key)
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE template_field_transforms
+                DROP CONSTRAINT IF EXISTS chk_template_field_transforms_date
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE template_field_transforms
+                ADD CONSTRAINT chk_template_field_transforms_date
+                CHECK (param_date_output IS NULL OR param_date_output IN ('DD', 'MM', 'YYYY', 'MM/YYYY', 'MM-YYYY', 'YYYY-MM', 'MMM', 'MMMM'))
                 """
             )
         conn.commit()
@@ -459,9 +472,9 @@ def _parse_date_components(raw_value: str) -> tuple[int | None, int | None, int 
 def _assert_date_parts(day: int | None, month: int | None, year: int | None, *, output: str, field_key: str) -> None:
     if output == "DD" and day is None:
         raise ValueError(f"Field '{field_key}' date format '{output}' requires day component")
-    if output in {"MM", "MM/YYYY", "YYYY-MM", "MMM", "MMMM"} and month is None:
+    if output in {"MM", "MM/YYYY", "MM-YYYY", "YYYY-MM", "MMM", "MMMM"} and month is None:
         raise ValueError(f"Field '{field_key}' date format '{output}' requires month component")
-    if output in {"YYYY", "MM/YYYY", "YYYY-MM"} and year is None:
+    if output in {"YYYY", "MM/YYYY", "MM-YYYY", "YYYY-MM"} and year is None:
         raise ValueError(f"Field '{field_key}' date format '{output}' requires year component")
 
 
@@ -478,6 +491,9 @@ def _format_date(day: int | None, month: int | None, year: int | None, output: s
     if output == "MM/YYYY":
         assert month is not None and year is not None
         return f"{month:02d}/{year:04d}"
+    if output == "MM-YYYY":
+        assert month is not None and year is not None
+        return f"{month:02d}-{year:04d}"
     if output == "YYYY-MM":
         assert month is not None and year is not None
         return f"{year:04d}-{month:02d}"

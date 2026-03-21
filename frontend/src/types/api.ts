@@ -100,6 +100,11 @@ export type OAuthStatusResponse = {
   expired: boolean | null
   has_refresh_token: boolean
   expiry: string | null
+  granted_scopes?: string[]
+  missing_scopes?: string[]
+  scope_mismatch?: boolean
+  tenant_disabled?: boolean
+  operable?: boolean
 }
 
 export type OAuthUnlinkResponse = {
@@ -149,7 +154,7 @@ export type TemplateMode = 'processing' | 'document'
 export type RuleStatus = 'missing' | 'invalid' | 'ready'
 export type TemplateFieldTransformOperation = 'trim' | 'replace' | 'remove_chars' | 'split' | 'case' | 'date_format'
 export type TemplateFieldTransformCaseMode = 'upper' | 'lower' | 'title'
-export type TemplateFieldTransformDateOutput = 'DD' | 'MM' | 'YYYY' | 'MM/YYYY' | 'YYYY-MM' | 'MMM' | 'MMMM'
+export type TemplateFieldTransformDateOutput = 'DD' | 'MM' | 'YYYY' | 'MM/YYYY' | 'MM-YYYY' | 'YYYY-MM' | 'MMM' | 'MMMM'
 
 export type TemplateFieldTransformStep = {
   operation: TemplateFieldTransformOperation

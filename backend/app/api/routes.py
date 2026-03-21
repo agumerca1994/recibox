@@ -904,9 +904,16 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
 @router.get("/auth/google/status")
 async def google_oauth_status(tenant_id: str = Query("default")):
     try:
-        return google_oauth.get_token_status(tenant_id)
+        status = google_oauth.get_token_status(tenant_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+    redis_conn = get_redis()
+    tenant_disabled = is_tenant_disabled(redis_conn, tenant_id)
+    return {
+        **status,
+        "tenant_disabled": tenant_disabled,
+        "operable": bool(status.get("has_token") and status.get("valid") and not tenant_disabled),
+    }
 
 
 @router.post("/auth/google/unlink")

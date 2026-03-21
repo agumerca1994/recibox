@@ -11,12 +11,15 @@ import {
   GripVertical,
   Info,
   ListOrdered,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Save,
   Settings,
   SlidersHorizontal,
   Tag,
   Tags,
+  Trash2,
   Type,
   X,
   type LucideIcon,
@@ -38,7 +41,6 @@ import {
   getTemplateClassificationRule,
   getGoogleOAuthStatus,
   getJobStatus,
-  getProcessingPreferences,
   ingestDrive,
   listEmployeeFolders,
   listEmployeeYears,
@@ -46,7 +48,6 @@ import {
   listDriveFiles,
   listPickerFolders,
   listTemplates,
-  putProcessingPreferences,
   putTemplateClassificationRule,
   putTenantDriveConfig,
   unlinkGoogleOAuth,
@@ -59,9 +60,7 @@ import { getEnvironmentChip, getRuntimeSetting } from './config/environment'
 import type {
   DriveFile,
   DriveFolder,
-  FilenameCustomFormat,
   JobStatusResponse,
-  ProcessingPreferences,
   ReciboxStructureCheckResponse,
   TemplateFieldType,
   TemplateRect,
@@ -111,11 +110,15 @@ type OAuthMessage = {
   message?: string
 }
 
+type FloatingMenuPosition = {
+  top: number
+  left: number
+  openUp?: boolean
+}
+
 type Section = 'cuenta' | 'procesar' | 'nomina' | 'configuracion'
 type ProcessState = 'running' | 'success' | 'error'
 type SortOrder = 'asc' | 'desc'
-type FilenameFormatMode = 'mm_yyyy_employee' | 'yyyy_mm_employee' | 'yyyy_employee' | 'custom'
-type EmployeeFolderNumberMode = 'indexed_number' | 'number_only' | 'no_index' | 'custom'
 type ProcessingMode = 'default' | 'template'
 
 type ProcessItem = {
@@ -149,15 +152,6 @@ type PendingStructureData = {
 type PendingStorageAction =
   | { kind: 'create' }
   | { kind: 'adopt'; folderId: string; folderName: string }
-
-type ProcessingPrefsSnapshot = {
-  filenameFormatMode: FilenameFormatMode
-  customFilenameFormat: FilenameCustomFormat
-  employeeFolderNumberMode: EmployeeFolderNumberMode
-  employeeFolderCustomPart1: string
-  employeeFolderCustomPart2: string
-  autoCreateMissingEmployeeFolder: boolean
-}
 
 type AutomationRulesSnapshot = {
   cronDateTime: string
@@ -201,11 +195,9 @@ type TemplateFieldTransformStepDraft = {
 
 type TemplateFieldDraftForm = {
   name: string
-  label: string
   type: TemplateFieldType
   detectedValue: string
   suggestedLabel: string
-  required: boolean
 }
 
 type TemplateEditorState = {
@@ -261,41 +253,19 @@ const sectionPathMap: Record<Section, string> = {
   configuracion: '/configuracion',
 }
 
-const filenameTokenOptions: Array<{ value: FilenameCustomFormat['part1']; label: string }> = [
-  { value: 'MM', label: 'MM' },
-  { value: 'YYYY', label: 'YYYY' },
-  { value: 'EMPLOYEE', label: 'Nombre del colaborador' },
-  { value: 'NONE', label: 'Ninguno' },
-]
-
-const filenameSeparatorOptions: Array<{ value: FilenameCustomFormat['sep1']; label: string }> = [
-  { value: '-', label: '-' },
-  { value: '/', label: '/' },
-  { value: ')', label: ')' },
-  { value: '', label: 'Ninguno' },
-]
-
-const defaultCustomFilenameFormat: FilenameCustomFormat = {
-  part1: 'MM',
-  sep1: '-',
-  part2: 'YYYY',
-  sep2: ')',
-  part3: 'EMPLOYEE',
-}
-
 const transformOperationOptions: Array<{ value: TemplateFieldTransformOperation; label: string }> = [
-  { value: 'trim', label: 'Trim (recortar espacios)' },
-  { value: 'replace', label: 'Replace (reemplazar texto)' },
-  { value: 'remove_chars', label: 'Remove chars (quitar caracteres)' },
-  { value: 'split', label: 'Split (dividir por separador)' },
-  { value: 'case', label: 'Case (mayus/minus/titulo)' },
-  { value: 'date_format', label: 'Date format (formato fecha)' },
+  { value: 'trim', label: 'Recortar espacios' },
+  { value: 'replace', label: 'Reemplazar texto' },
+  { value: 'remove_chars', label: 'Quitar caracteres' },
+  { value: 'split', label: 'Dividir por separador' },
+  { value: 'case', label: 'Cambiar mayusculas y minusculas' },
+  { value: 'date_format', label: 'Formatear fecha' },
 ]
 
 const transformCaseModeOptions: Array<{ value: TemplateFieldTransformCaseMode; label: string }> = [
   { value: 'upper', label: 'MAYUSCULAS' },
   { value: 'lower', label: 'minusculas' },
-  { value: 'title', label: 'Titulo' },
+  { value: 'title', label: 'Iniciar con mayuscula' },
 ]
 
 const transformDateOutputOptions: Array<{ value: TemplateFieldTransformDateOutput; label: string }> = [
@@ -303,6 +273,7 @@ const transformDateOutputOptions: Array<{ value: TemplateFieldTransformDateOutpu
   { value: 'MM', label: 'MM' },
   { value: 'YYYY', label: 'YYYY' },
   { value: 'MM/YYYY', label: 'MM/YYYY' },
+  { value: 'MM-YYYY', label: 'MM-YYYY' },
   { value: 'YYYY-MM', label: 'YYYY-MM' },
   { value: 'MMM', label: 'MMM (mes corto ES)' },
   { value: 'MMMM', label: 'MMMM (mes completo ES)' },
@@ -469,7 +440,7 @@ function RuleBuilderLane({
 }: RuleBuilderLaneProps) {
   const [showInsertMenu, setShowInsertMenu] = useState(false)
   const [showTemplateFieldOptions, setShowTemplateFieldOptions] = useState(false)
-  const [insertMenuPosition, setInsertMenuPosition] = useState<{ left: number; top: number } | null>(null)
+  const [insertMenuPosition, setInsertMenuPosition] = useState<FloatingMenuPosition | null>(null)
   const insertMenuRef = useRef<HTMLDivElement | null>(null)
   const addButtonRef = useRef<HTMLButtonElement | null>(null)
   const sortableIds = parts.map((part) => buildRulePartDndId(nodeId, part.id))
@@ -523,10 +494,16 @@ function RuleBuilderLane({
       return
     }
     const rect = addButtonRef.current.getBoundingClientRect()
-    const maxLeft = Math.max(window.innerWidth - 240, 8)
+    const viewportPadding = 12
+    const menuWidth = 224
+    const menuHeight = 280
+    const preferredLeft = rect.left
+    const openUp = window.innerHeight - rect.bottom < menuHeight + 12 && rect.top > menuHeight + viewportPadding
+    const maxLeft = Math.max(window.innerWidth - menuWidth - viewportPadding, viewportPadding)
     setInsertMenuPosition({
-      left: Math.min(Math.max(rect.left, 8), maxLeft),
-      top: Math.min(rect.bottom + 6, Math.max(window.innerHeight - 220, 8)),
+      left: Math.min(Math.max(preferredLeft, viewportPadding), maxLeft),
+      top: openUp ? rect.top - 8 : Math.max(rect.bottom + 8, viewportPadding),
+      openUp,
     })
     setShowTemplateFieldOptions(false)
     setShowInsertMenu(true)
@@ -569,8 +546,12 @@ function RuleBuilderLane({
         {showInsertMenu && !saving && insertMenuPosition && (
           <div
             ref={insertMenuRef}
-            className="fixed z-[1200] w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-2xl"
-            style={{ left: insertMenuPosition.left, top: insertMenuPosition.top }}
+            className="fixed z-[1200] max-h-[calc(100vh-24px)] w-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl"
+            style={{
+              left: insertMenuPosition.left,
+              top: insertMenuPosition.top,
+              transform: insertMenuPosition.openUp ? 'translateY(-100%)' : undefined,
+            }}
             role="menu"
             aria-label="Agregar parte de nombre"
           >
@@ -868,65 +849,6 @@ function normalizeSearchText(value: string): string {
     .toLowerCase()
 }
 
-function tokenPreviewValue(token: FilenameCustomFormat['part1']): string {
-  if (token === 'NONE') {
-    return ''
-  }
-  if (token === 'MM') {
-    return '01'
-  }
-  if (token === 'YYYY') {
-    return '2026'
-  }
-  return 'Nombre del colaborador'
-}
-
-function separatorPreviewValue(separator: FilenameCustomFormat['sep1']): string {
-  if (separator === ')') {
-    return ') '
-  }
-  return separator
-}
-
-function buildFilenamePreview(mode: FilenameFormatMode, custom: FilenameCustomFormat): string {
-  if (mode === 'yyyy_mm_employee') {
-    return '2026-01) Nombre del colaborador.pdf'
-  }
-  if (mode === 'yyyy_employee') {
-    return '2026) Nombre del colaborador.pdf'
-  }
-  if (mode === 'custom') {
-    return `${tokenPreviewValue(custom.part1)}${separatorPreviewValue(custom.sep1)}${tokenPreviewValue(custom.part2)}${separatorPreviewValue(custom.sep2)}${tokenPreviewValue(custom.part3)}.pdf`
-  }
-  return '01-2026) Nombre del colaborador.pdf'
-}
-
-function hasAnyCustomFilenamePart(custom: FilenameCustomFormat): boolean {
-  return custom.part1 !== 'NONE' || custom.part2 !== 'NONE' || custom.part3 !== 'NONE'
-}
-
-function buildEmployeeFolderPreview(
-  mode: EmployeeFolderNumberMode,
-  customPart1: string,
-  customPart2: string,
-): string {
-  const numero = '1'
-  const empleado = 'Nombre del colaborador'
-  if (mode === 'number_only') {
-    return `${numero} ${empleado}`
-  }
-  if (mode === 'no_index') {
-    return empleado
-  }
-  if (mode === 'custom') {
-    const fixedField = `${customPart1}${customPart2}`.trim()
-    if (!fixedField) {
-      return empleado
-    }
-    return `${fixedField} ${empleado}`
-  }
-  return `#${numero} ${empleado}`
-}
 
 function compareEmployeeFolders(a: DriveFolder, b: DriveFolder): number {
   const cmp = employeeNameCollator.compare(normalizeSearchText(a.name), normalizeSearchText(b.name))
@@ -1078,11 +1000,9 @@ function createEmptyTemplateEditor(): TemplateEditorState {
 function createEmptyTemplateFieldDraft(): TemplateFieldDraftForm {
   return {
     name: '',
-    label: '',
     type: 'string',
     detectedValue: '',
     suggestedLabel: '',
-    required: false,
   }
 }
 
@@ -1141,7 +1061,7 @@ function mapApiStepToDraft(step: TemplateFieldTransformStep): TemplateFieldTrans
   draft.to = typeof step.to === 'string' ? step.to : ''
   draft.chars = typeof step.chars === 'string' ? step.chars : ''
   draft.delimiter = typeof step.delimiter === 'string' ? step.delimiter : ''
-  draft.index = typeof step.index === 'number' && Number.isFinite(step.index) && step.index >= 1 ? String(step.index) : '1'
+  draft.index = typeof step.index === 'number' && Number.isFinite(step.index) && step.index >= 2 ? '2' : '1'
   if (step.mode === 'upper' || step.mode === 'lower' || step.mode === 'title') {
     draft.mode = step.mode
   }
@@ -1150,6 +1070,7 @@ function mapApiStepToDraft(step: TemplateFieldTransformStep): TemplateFieldTrans
     step.output === 'MM' ||
     step.output === 'YYYY' ||
     step.output === 'MM/YYYY' ||
+    step.output === 'MM-YYYY' ||
     step.output === 'YYYY-MM' ||
     step.output === 'MMM' ||
     step.output === 'MMMM'
@@ -1168,8 +1089,7 @@ function mapDraftStepToApi(step: TemplateFieldTransformStepDraft): TemplateField
     return { operation, chars: step.chars }
   }
   if (operation === 'split') {
-    const parsedIndex = Number.parseInt(step.index, 10)
-    return { operation, delimiter: step.delimiter, index: Number.isFinite(parsedIndex) && parsedIndex >= 1 ? parsedIndex : 1 }
+    return { operation, delimiter: step.delimiter, index: step.index === '2' ? 2 : 1 }
   }
   if (operation === 'case') {
     return { operation, mode: step.mode }
@@ -1363,10 +1283,10 @@ function assertDatePartsForOutput(parts: DateParts, output: TemplateFieldTransfo
   if (output === 'DD' && day === null) {
     throw new Error(`Campo '${fieldKey}': el formato DD requiere dia`)
   }
-  if ((output === 'MM' || output === 'MM/YYYY' || output === 'YYYY-MM' || output === 'MMM' || output === 'MMMM') && month === null) {
+  if ((output === 'MM' || output === 'MM/YYYY' || output === 'MM-YYYY' || output === 'YYYY-MM' || output === 'MMM' || output === 'MMMM') && month === null) {
     throw new Error(`Campo '${fieldKey}': el formato ${output} requiere mes`)
   }
-  if ((output === 'YYYY' || output === 'MM/YYYY' || output === 'YYYY-MM') && year === null) {
+  if ((output === 'YYYY' || output === 'MM/YYYY' || output === 'MM-YYYY' || output === 'YYYY-MM') && year === null) {
     throw new Error(`Campo '${fieldKey}': el formato ${output} requiere año`)
   }
 }
@@ -1384,6 +1304,9 @@ function formatDateOutput(parts: DateParts, output: TemplateFieldTransformDateOu
   }
   if (output === 'MM/YYYY') {
     return `${String(month || 0).padStart(2, '0')}/${String(year || 0).padStart(4, '0')}`
+  }
+  if (output === 'MM-YYYY') {
+    return `${String(month || 0).padStart(2, '0')}-${String(year || 0).padStart(4, '0')}`
   }
   if (output === 'YYYY-MM') {
     return `${String(year || 0).padStart(4, '0')}-${String(month || 0).padStart(2, '0')}`
@@ -1424,15 +1347,14 @@ function applyTemplateFieldTransformStep(value: string, step: TemplateFieldTrans
     if (!step.delimiter.trim()) {
       throw new Error(`Campo '${fieldKey}': split requiere delimiter`)
     }
-    const parsedIndex = Number.parseInt(step.index, 10)
-    if (!Number.isFinite(parsedIndex) || parsedIndex < 1) {
-      throw new Error(`Campo '${fieldKey}': split index debe ser >= 1`)
-    }
     const parts = current.split(step.delimiter)
-    if (parsedIndex > parts.length) {
-      throw new Error(`Campo '${fieldKey}': split index fuera de rango`)
+    if (parts.length < 2) {
+      throw new Error(`Campo '${fieldKey}': no se encontro el separador indicado`)
     }
-    return parts[parsedIndex - 1]
+    if (step.index === '2') {
+      return parts.slice(1).join(step.delimiter).trim()
+    }
+    return parts[0].trim()
   }
   if (operation === 'case') {
     if (step.mode === 'upper') {
@@ -1481,6 +1403,231 @@ function buildTransformPipelinePreview(
       error: error instanceof Error ? error.message : 'Error de transformacion',
     }
   }
+}
+
+type TemplateFieldFormatEditorProps = {
+  fieldKey: string
+  steps: TemplateFieldTransformStepDraft[]
+  sourceValue: string
+  onAddStep: () => void
+  onUpdateStep: (stepId: string, updater: (step: TemplateFieldTransformStepDraft) => TemplateFieldTransformStepDraft) => void
+  onRemoveStep: (stepId: string) => void
+}
+
+function TemplateFieldFormatEditor({
+  fieldKey,
+  steps,
+  sourceValue,
+  onAddStep,
+  onUpdateStep,
+  onRemoveStep,
+}: TemplateFieldFormatEditorProps) {
+  const preview = buildTransformPipelinePreview(sourceValue, steps, fieldKey)
+  const normalizedSourceValue = preview.snapshots[0] || '(vacio)'
+  const firstFormatValue =
+    steps.length > 0
+      ? preview.snapshots[1] || '(vacio)'
+      : 'Sin formato aplicado.'
+
+  return (
+    <div className="template-field-format-editor">
+      <div className="template-field-transform-header">
+        <span>Editar valor detectado</span>
+        <button
+          type="button"
+          className="template-transform-add-btn"
+          onClick={onAddStep}
+          disabled={steps.length >= 3}
+          aria-label="Agregar formato"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="template-format-divider" />
+
+      {steps.length === 0 ? (
+        <p className="settings-preview">Todavia no agregaste reglas de formato.</p>
+      ) : (
+        <div className="template-transform-steps">
+          {steps.map((step, stepIndex) => (
+            <div key={step.id} className="template-transform-step-row">
+              <div className="template-transform-step-head">
+                <span className="template-transform-step-index">Formato {stepIndex + 1}</span>
+                <button type="button" className="link-btn link-btn-danger" onClick={() => onRemoveStep(step.id)}>
+                  Quitar
+                </button>
+              </div>
+              <select
+                className="year-select"
+                value={step.operation}
+                onChange={(event) =>
+                  onUpdateStep(step.id, (current) => {
+                    const operation = normalizeTransformOperation(event.target.value)
+                    const next = createTransformStepDraft(operation)
+                    next.id = current.id
+                    return next
+                  })
+                }
+              >
+                {transformOperationOptions.map((option) => (
+                  <option key={`${step.id}-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              {step.operation === 'replace' && (
+                <div className="template-transform-params">
+                  <input
+                    className="settings-input"
+                    placeholder="Texto a reemplazar"
+                    value={step.from}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        from: event.target.value,
+                      }))
+                    }
+                  />
+                  <input
+                    className="settings-input"
+                    placeholder="Nuevo texto"
+                    value={step.to}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        to: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+
+              {step.operation === 'remove_chars' && (
+                <div className="template-transform-params">
+                  <input
+                    className="settings-input"
+                    placeholder="Caracteres a quitar"
+                    value={step.chars}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        chars: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+
+              {step.operation === 'split' && (
+                <div className="template-transform-params">
+                  <input
+                    className="settings-input"
+                    placeholder="Separador"
+                    value={step.delimiter}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        delimiter: event.target.value,
+                      }))
+                    }
+                  />
+                  <select
+                    className="year-select"
+                    value={step.index}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        index: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="1">Antes del separador</option>
+                    <option value="2">Despues del separador</option>
+                  </select>
+                </div>
+              )}
+
+              {step.operation === 'case' && (
+                <div className="template-transform-params">
+                  <select
+                    className="year-select"
+                    value={step.mode}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        mode:
+                          event.target.value === 'upper'
+                            ? 'upper'
+                            : event.target.value === 'title'
+                              ? 'title'
+                              : 'lower',
+                      }))
+                    }
+                  >
+                    {transformCaseModeOptions.map((option) => (
+                      <option key={`${step.id}-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {step.operation === 'date_format' && (
+                <div className="template-transform-params">
+                  <select
+                    className="year-select"
+                    value={step.output}
+                    onChange={(event) =>
+                      onUpdateStep(step.id, (current) => ({
+                        ...current,
+                        output:
+                          event.target.value === 'DD' ||
+                          event.target.value === 'MM' ||
+                          event.target.value === 'YYYY' ||
+                          event.target.value === 'MM/YYYY' ||
+                          event.target.value === 'MM-YYYY' ||
+                          event.target.value === 'YYYY-MM' ||
+                          event.target.value === 'MMM' ||
+                          event.target.value === 'MMMM'
+                            ? event.target.value
+                            : 'YYYY',
+                      }))
+                    }
+                  >
+                    {transformDateOutputOptions.map((option) => (
+                      <option key={`${step.id}-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {step.operation === 'trim' && <p className="settings-preview">Sin parametros.</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="template-format-divider" />
+      <div className="template-transform-preview">
+        <p className="template-transform-preview-title">Vista previa</p>
+        <p className="settings-preview">Valor detectado: {normalizedSourceValue}</p>
+        <p className="settings-preview">Formato 1: {firstFormatValue}</p>
+        {steps.map((step, stepIndex) => (
+          stepIndex > 0 ? (
+            <p key={`${step.id}-preview-${stepIndex}`} className="settings-preview">
+              Formato {stepIndex + 1}: {preview.snapshots[stepIndex + 1] || '(vacio)'}
+            </p>
+          ) : null
+        ))}
+        <p className="settings-preview">Resultado: {preview.result || '(vacio)'}</p>
+        {preview.error && <p className="settings-hint">{preview.error}</p>}
+      </div>
+    </div>
+  )
 }
 
 function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): TemplateRect {
@@ -1670,10 +1817,31 @@ function mapRuleFieldOptions(
         return fallback
       }
       const preview = buildTransformPipelinePreview(source, field.transforms, field.key)
-      if (preview.error) {
-        return `${source} [error]`
+      const normalizePreviewValue = (value: string) => {
+        const trimmed = value.trim()
+        if (!trimmed) {
+          return ''
+        }
+
+        const labelCandidates = [field.label, field.name, field.key]
+          .map((candidate) => String(candidate || '').trim())
+          .filter(Boolean)
+
+        for (const candidate of labelCandidates) {
+          const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const withoutLabel = trimmed.replace(new RegExp(`^${escaped}\\s*:\\s*`, 'i'), '').trim()
+          if (withoutLabel !== trimmed) {
+            return withoutLabel
+          }
+        }
+
+        return trimmed
       }
-      return preview.result.trim() || fallback
+
+      if (preview.error) {
+        return `${normalizePreviewValue(source)} [error]`
+      }
+      return normalizePreviewValue(preview.result) || fallback
     })(),
   }))
 }
@@ -2050,6 +2218,12 @@ function BackofficeApp() {
   const [templatePendingRect, setTemplatePendingRect] = useState<TemplateRect | null>(null)
   const [templateDrawingStart, setTemplateDrawingStart] = useState<{ x: number; y: number } | null>(null)
   const [templateHoveredFieldId, setTemplateHoveredFieldId] = useState<string | null>(null)
+  const [templateFormatFieldId, setTemplateFormatFieldId] = useState<string | null>(null)
+  const [templateFormatDraftSteps, setTemplateFormatDraftSteps] = useState<TemplateFieldTransformStepDraft[]>([])
+  const [templateFormatNameDraft, setTemplateFormatNameDraft] = useState('')
+  const [templateFormatNameEditing, setTemplateFormatNameEditing] = useState(false)
+  const [templateListActionMenuId, setTemplateListActionMenuId] = useState<string | null>(null)
+  const [templateListActionMenuPosition, setTemplateListActionMenuPosition] = useState<FloatingMenuPosition | null>(null)
   const [showClassificationRuleModal, setShowClassificationRuleModal] = useState(false)
   const [classificationRuleMandatory, setClassificationRuleMandatory] = useState(false)
   const [classificationRuleLoading, setClassificationRuleLoading] = useState(false)
@@ -2061,24 +2235,10 @@ function BackofficeApp() {
   const [classificationRuleActiveOverlay, setClassificationRuleActiveOverlay] = useState<RuleDragOverlayChipDraft | null>(null)
   const [classificationRuleError, setClassificationRuleError] = useState('')
   const [classificationRuleSuccess, setClassificationRuleSuccess] = useState('')
-  const [processingPreferencesLoading, setProcessingPreferencesLoading] = useState(false)
-  const [processingPreferencesSaving, setProcessingPreferencesSaving] = useState(false)
-  const [processingPreferencesError, setProcessingPreferencesError] = useState('')
-  const [processingPreferencesSuccess, setProcessingPreferencesSuccess] = useState('')
-  const [showCustomFilenameModal, setShowCustomFilenameModal] = useState(false)
-  const [customFormatError, setCustomFormatError] = useState('')
-  const [filenameFormatMode, setFilenameFormatMode] = useState<FilenameFormatMode>('mm_yyyy_employee')
-  const [customFilenameFormat, setCustomFilenameFormat] = useState<FilenameCustomFormat>(defaultCustomFilenameFormat)
-  const [employeeFolderNumberMode, setEmployeeFolderNumberMode] = useState<EmployeeFolderNumberMode>('indexed_number')
-  const [showCustomEmployeeFolderModal, setShowCustomEmployeeFolderModal] = useState(false)
-  const [customEmployeeFolderError, setCustomEmployeeFolderError] = useState('')
-  const [employeeFolderCustomPart1, setEmployeeFolderCustomPart1] = useState('')
-  const [employeeFolderCustomPart2, setEmployeeFolderCustomPart2] = useState('')
-  const [autoCreateMissingEmployeeFolder, setAutoCreateMissingEmployeeFolder] = useState(true)
+  const [showClassificationRuleExitConfirmModal, setShowClassificationRuleExitConfirmModal] = useState(false)
   const [cronDateTime, setCronDateTime] = useState('')
   const [retryOnError, setRetryOnError] = useState('0')
   const [notifyOnFailure, setNotifyOnFailure] = useState(false)
-  const [processingPrefsInitial, setProcessingPrefsInitial] = useState<ProcessingPrefsSnapshot | null>(null)
   const [, setAutomationRulesInitial] = useState<AutomationRulesSnapshot | null>(null)
   const [, setAutomationRulesSaving] = useState(false)
   const [automationRulesSuccess, setAutomationRulesSuccess] = useState('')
@@ -2091,6 +2251,7 @@ function BackofficeApp() {
     return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
   })
   const profilePopoverRef = useRef<HTMLDivElement | null>(null)
+  const templateListMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const templateCanvasRef = useRef<HTMLDivElement | null>(null)
   const templateUploadInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -2112,6 +2273,7 @@ function BackofficeApp() {
     async (showError = false, targetTenantId = tenantId): Promise<boolean> => {
       const response = await getGoogleOAuthStatus(targetTenantId)
       if (!response.ok) {
+        setIsConnected(false)
         if (showError) {
           setOauthFeedback({
             type: 'error',
@@ -2121,7 +2283,7 @@ function BackofficeApp() {
         return false
       }
       const data = response.data
-      const connected = Boolean(data?.has_token && data?.valid)
+      const connected = Boolean(data?.operable ?? (data?.has_token && data?.valid && !data?.tenant_disabled))
       setIsConnected(connected)
       return connected
     },
@@ -2171,6 +2333,73 @@ function BackofficeApp() {
     }
     window.localStorage.setItem(tenantStorageKey, normalizeTenantId(tenantId) || defaultTenant)
   }, [tenantId])
+
+  useEffect(() => {
+    if (!templateSuccess) {
+      return
+    }
+    const timeoutId = window.setTimeout(() => {
+      setTemplateSuccess('')
+    }, 5000)
+    return () => window.clearTimeout(timeoutId)
+  }, [templateSuccess])
+
+  const closeTemplateListActionMenu = useCallback(() => {
+    setTemplateListActionMenuId(null)
+    setTemplateListActionMenuPosition(null)
+  }, [])
+
+  const toggleTemplateListActionMenu = useCallback(
+    (templateId: string, triggerButton: HTMLButtonElement) => {
+      if (templateListActionMenuId === templateId) {
+        closeTemplateListActionMenu()
+        return
+      }
+
+      const rect = triggerButton.getBoundingClientRect()
+      const viewportPadding = 12
+      const menuWidth = 220
+      const menuHeight = 168
+      const preferredLeft = rect.right - menuWidth
+      const openUp = window.innerHeight - rect.bottom < menuHeight + 12 && rect.top > menuHeight + viewportPadding
+      const maxLeft = Math.max(window.innerWidth - menuWidth - viewportPadding, viewportPadding)
+
+      setTemplateListActionMenuPosition({
+        left: Math.min(Math.max(preferredLeft, viewportPadding), maxLeft),
+        top: openUp ? rect.top - 8 : Math.max(rect.bottom + 8, viewportPadding),
+        openUp,
+      })
+      setTemplateListActionMenuId(templateId)
+    },
+    [closeTemplateListActionMenu, templateListActionMenuId],
+  )
+
+  useEffect(() => {
+    if (!templateListActionMenuId) {
+      return
+    }
+
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (!target || templateListMenuWrapRef.current?.contains(target)) {
+        return
+      }
+      closeTemplateListActionMenu()
+    }
+
+    const onViewportChange = () => {
+      closeTemplateListActionMenu()
+    }
+
+    document.addEventListener('mousedown', onDocumentPointerDown)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', onDocumentPointerDown)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onViewportChange, true)
+    }
+  }, [closeTemplateListActionMenu, templateListActionMenuId])
 
   useEffect(() => {
     updateSectionPath(activeSection, 'replace')
@@ -2288,32 +2517,7 @@ function BackofficeApp() {
     setPendingStorageAction(null)
   }, [])
 
-  const loadProcessingPreferences = useCallback(async () => {
-    setProcessingPreferencesLoading(true)
-    setProcessingPreferencesError('')
-    setProcessingPreferencesSuccess('')
-    const response = await getProcessingPreferences(tenantId)
-    setProcessingPreferencesLoading(false)
-    if (!response.ok || !response.data) {
-      setProcessingPreferencesError(response.error || 'No se pudo cargar la configuración de preferencias.')
-      return
-    }
-    const data = response.data as ProcessingPreferences
-    setFilenameFormatMode(data.filename_format_mode)
-    setCustomFilenameFormat(data.filename_custom_format || defaultCustomFilenameFormat)
-    setEmployeeFolderNumberMode(data.employee_folder_number_mode || 'indexed_number')
-    setEmployeeFolderCustomPart1((data.employee_folder_number_custom_part1 || '').trim())
-    setEmployeeFolderCustomPart2((data.employee_folder_number_custom_part2 || '').trim())
-    setAutoCreateMissingEmployeeFolder(data.auto_create_missing_employee_folder !== false)
-    setProcessingPrefsInitial({
-      filenameFormatMode: data.filename_format_mode,
-      customFilenameFormat: data.filename_custom_format || defaultCustomFilenameFormat,
-      employeeFolderNumberMode: data.employee_folder_number_mode || 'indexed_number',
-      employeeFolderCustomPart1: (data.employee_folder_number_custom_part1 || '').trim(),
-      employeeFolderCustomPart2: (data.employee_folder_number_custom_part2 || '').trim(),
-      autoCreateMissingEmployeeFolder: data.auto_create_missing_employee_folder !== false,
-    })
-
+  const loadAutomationRules = useCallback(() => {
     const automationDefaults: AutomationRulesSnapshot = {
       cronDateTime: '',
       retryOnError: '0',
@@ -2379,9 +2583,14 @@ function BackofficeApp() {
     setTemplatePendingRect(null)
     setTemplateDrawingStart(null)
     setTemplateHoveredFieldId(null)
+    setTemplateFormatFieldId(null)
+    setTemplateFormatDraftSteps([])
+    setTemplateFormatNameDraft('')
+    setTemplateFormatNameEditing(false)
+    closeTemplateListActionMenu()
     setShowTemplateEditorModal(false)
     setTemplateError('')
-  }, [])
+  }, [closeTemplateListActionMenu])
 
   const createTemplateDraft = useCallback(async () => {
     let sourceBlob: Blob | null = null
@@ -2888,11 +3097,9 @@ function BackofficeApp() {
   )
 
   const closeClassificationRuleEditor = useCallback(() => {
-    if (classificationRuleMandatory) {
-      setTemplateSuccess('La plantilla quedó guardada pero no podra usarse en Procesar hasta completar su regla.')
-    }
+    setShowClassificationRuleExitConfirmModal(false)
     resetClassificationRuleEditor()
-  }, [classificationRuleMandatory, resetClassificationRuleEditor])
+  }, [resetClassificationRuleEditor])
 
   const saveClassificationRuleEditor = useCallback(async () => {
     const templateId = classificationRuleTemplateId.trim()
@@ -2908,12 +3115,7 @@ function BackofficeApp() {
 
     if (classificationRuleNodes.some((node) => node.nameParts.length === 0)) {
       setClassificationRuleError('Hay niveles sin configurar.')
-      const exitWithoutSaving = window.confirm(
-        'Hay niveles sin configurar.\n\nAceptar: salir sin guardar cambios.\nCancelar: continuar editando.',
-      )
-      if (exitWithoutSaving) {
-        closeClassificationRuleEditor()
-      }
+      setShowClassificationRuleExitConfirmModal(true)
       return
     }
 
@@ -3059,7 +3261,7 @@ function BackofficeApp() {
       return
     }
 
-    setTemplateSuccess('Plantilla guardada.')
+    setTemplateSuccess(isNewTemplate ? 'Plantilla creada.' : 'Plantilla actualizada.')
     await loadTemplatesForTenant(true)
     setShowTemplateEditorModal(false)
     setEditingTemplateId(null)
@@ -3077,6 +3279,7 @@ function BackofficeApp() {
   const removeTemplate = useCallback(
     async (templateId: string) => {
       setTemplateActionLoadingId(templateId)
+      closeTemplateListActionMenu()
       setTemplateError('')
       setTemplateSuccess('')
       const response = await deleteTemplate(tenantId, templateId)
@@ -3094,69 +3297,8 @@ function BackofficeApp() {
       setTemplateSuccess('Plantilla eliminada.')
       await loadTemplatesForTenant(true)
     },
-    [editingTemplateId, loadTemplatesForTenant, resetTemplateEditor, selectedTemplateId, tenantId],
+    [closeTemplateListActionMenu, editingTemplateId, loadTemplatesForTenant, resetTemplateEditor, selectedTemplateId, tenantId],
   )
-
-  const addTemplateFieldTransformStep = useCallback((fieldId: string) => {
-    setTemplateEditor((prev) => ({
-      ...prev,
-      fields: prev.fields.map((field) => {
-        if (field.id !== fieldId) {
-          return field
-        }
-        if (field.transforms.length >= 3) {
-          return field
-        }
-        return {
-          ...field,
-          transforms: [...field.transforms, createTransformStepDraft('trim')],
-        }
-      }),
-    }))
-    setTemplateError('')
-    setTemplateSuccess('')
-  }, [])
-
-  const updateTemplateFieldTransformStep = useCallback(
-    (
-      fieldId: string,
-      stepId: string,
-      updater: (step: TemplateFieldTransformStepDraft) => TemplateFieldTransformStepDraft,
-    ) => {
-      setTemplateEditor((prev) => ({
-        ...prev,
-        fields: prev.fields.map((field) => {
-          if (field.id !== fieldId) {
-            return field
-          }
-          return {
-            ...field,
-            transforms: field.transforms.map((step) => (step.id === stepId ? updater(step) : step)),
-          }
-        }),
-      }))
-      setTemplateError('')
-      setTemplateSuccess('')
-    },
-    [],
-  )
-
-  const removeTemplateFieldTransformStep = useCallback((fieldId: string, stepId: string) => {
-    setTemplateEditor((prev) => ({
-      ...prev,
-      fields: prev.fields.map((field) => {
-        if (field.id !== fieldId) {
-          return field
-        }
-        return {
-          ...field,
-          transforms: field.transforms.filter((step) => step.id !== stepId),
-        }
-      }),
-    }))
-    setTemplateError('')
-    setTemplateSuccess('')
-  }, [])
 
   const addFieldToTemplate = useCallback(() => {
     if (!templatePendingRect) {
@@ -3165,7 +3307,7 @@ function BackofficeApp() {
     }
     const fieldName = templateFieldDraft.name.trim()
     if (!fieldName) {
-      setTemplateError('El campo es obligatorio.')
+      setTemplateError('El nombre del campo es obligatorio.')
       return
     }
 
@@ -3177,13 +3319,13 @@ function BackofficeApp() {
           id: randomId(),
           key: sanitizeFieldKey(fieldName, `field_${prev.fields.length + 1}`),
           name: fieldName,
-          label: templateFieldDraft.label.trim() || null,
+          label: null,
           suggestedLabel: templateFieldDraft.suggestedLabel.trim() || null,
           type: templateFieldDraft.type,
           rect: templatePendingRect,
           detectedValue: templateFieldDraft.detectedValue.trim() || null,
           sampleValue: templateFieldDraft.detectedValue.trim() || null,
-          required: templateFieldDraft.required,
+          required: false,
           transforms: [],
         },
       ],
@@ -3194,14 +3336,78 @@ function BackofficeApp() {
     setTemplateSuccess('')
   }, [templateFieldDraft, templatePendingRect])
 
+  const openTemplateFieldFormatModal = useCallback((fieldId: string) => {
+    const field = templateEditor.fields.find((current) => current.id === fieldId)
+    if (!field) {
+      return
+    }
+    setTemplateFormatFieldId(fieldId)
+    setTemplateFormatDraftSteps(field.transforms.map((step) => ({ ...step })))
+    setTemplateFormatNameDraft(field.name)
+    setTemplateFormatNameEditing(false)
+    setTemplateError('')
+    setTemplateSuccess('')
+  }, [templateEditor.fields])
+
+  const closeTemplateFieldFormatModal = useCallback(() => {
+    setTemplateFormatFieldId(null)
+    setTemplateFormatDraftSteps([])
+    setTemplateFormatNameDraft('')
+    setTemplateFormatNameEditing(false)
+  }, [])
+
+  const addTemplateFieldFormatDraftStep = useCallback(() => {
+    setTemplateFormatDraftSteps((prev) => (prev.length >= 3 ? prev : [...prev, createTransformStepDraft('trim')]))
+  }, [])
+
+  const updateTemplateFieldFormatDraftStep = useCallback(
+    (stepId: string, updater: (step: TemplateFieldTransformStepDraft) => TemplateFieldTransformStepDraft) => {
+      setTemplateFormatDraftSteps((prev) => prev.map((step) => (step.id === stepId ? updater(step) : step)))
+    },
+    [],
+  )
+
+  const removeTemplateFieldFormatDraftStep = useCallback((stepId: string) => {
+    setTemplateFormatDraftSteps((prev) => prev.filter((step) => step.id !== stepId))
+  }, [])
+
+  const saveTemplateFieldFormat = useCallback(() => {
+    if (!templateFormatFieldId) {
+      return
+    }
+    const nextName = templateFormatNameDraft.trim()
+    if (!nextName) {
+      setTemplateError('El nombre del campo es obligatorio.')
+      return
+    }
+    setTemplateEditor((prev) => ({
+      ...prev,
+      fields: prev.fields.map((field) =>
+        field.id === templateFormatFieldId
+          ? {
+              ...field,
+              name: nextName,
+              transforms: templateFormatDraftSteps.slice(0, 3).map((step) => ({ ...step })),
+            }
+          : field,
+      ),
+    }))
+    setTemplateError('')
+    setTemplateSuccess('')
+    closeTemplateFieldFormatModal()
+  }, [closeTemplateFieldFormatModal, templateFormatDraftSteps, templateFormatFieldId, templateFormatNameDraft])
+
   const removeTemplateFieldFromEditor = useCallback((fieldId: string) => {
     setTemplateEditor((prev) => ({
       ...prev,
       fields: prev.fields.filter((field) => field.id !== fieldId),
     }))
+    if (templateFormatFieldId === fieldId) {
+      closeTemplateFieldFormatModal()
+    }
     setTemplateError('')
     setTemplateSuccess('')
-  }, [])
+  }, [closeTemplateFieldFormatModal, templateFormatFieldId])
 
   const toCanvasRelativePoint = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -3223,11 +3429,9 @@ function BackofficeApp() {
       setTemplatePendingRect(nextRect)
       setTemplateFieldDraft({
         name: suggested || '',
-        label: '',
         type: 'string',
         detectedValue: detected,
         suggestedLabel: suggested,
-        required: false,
       })
       setTemplateError('')
     },
@@ -3276,83 +3480,6 @@ function BackofficeApp() {
     [finalizePendingRect, templateDrawingStart, toCanvasRelativePoint],
   )
 
-  const saveProcessingPreferences = useCallback(async () => {
-    if (filenameFormatMode === 'custom' && !hasAnyCustomFilenamePart(customFilenameFormat)) {
-      setProcessingPreferencesError('En formato custom, al menos un campo debe tener información.')
-      return
-    }
-    if (employeeFolderNumberMode === 'custom') {
-      if (!employeeFolderCustomPart1 && !employeeFolderCustomPart2) {
-        setProcessingPreferencesError('En carpeta empleado custom, al menos un campo debe tener información.')
-        return
-      }
-    }
-    setProcessingPreferencesSaving(true)
-    setProcessingPreferencesError('')
-    setProcessingPreferencesSuccess('')
-    const response = await putProcessingPreferences(tenantId, {
-      tenant_id: tenantId,
-      filename_format_mode: filenameFormatMode,
-      filename_custom_format: customFilenameFormat,
-      employee_folder_number_mode: employeeFolderNumberMode,
-      employee_folder_number_custom_part1: employeeFolderCustomPart1,
-      employee_folder_number_custom_part2: employeeFolderCustomPart2,
-      auto_create_missing_employee_folder: autoCreateMissingEmployeeFolder,
-    })
-    setProcessingPreferencesSaving(false)
-    if (!response.ok || !response.data) {
-      setProcessingPreferencesError(response.error || 'No se pudo guardar la configuración de preferencias.')
-      return
-    }
-    setFilenameFormatMode(response.data.filename_format_mode)
-    setCustomFilenameFormat(response.data.filename_custom_format || defaultCustomFilenameFormat)
-    setEmployeeFolderNumberMode(response.data.employee_folder_number_mode || 'indexed_number')
-    setEmployeeFolderCustomPart1((response.data.employee_folder_number_custom_part1 || '').trim())
-    setEmployeeFolderCustomPart2((response.data.employee_folder_number_custom_part2 || '').trim())
-    setAutoCreateMissingEmployeeFolder(response.data.auto_create_missing_employee_folder !== false)
-    setProcessingPrefsInitial({
-      filenameFormatMode: response.data.filename_format_mode,
-      customFilenameFormat: response.data.filename_custom_format || defaultCustomFilenameFormat,
-      employeeFolderNumberMode: response.data.employee_folder_number_mode || 'indexed_number',
-      employeeFolderCustomPart1: (response.data.employee_folder_number_custom_part1 || '').trim(),
-      employeeFolderCustomPart2: (response.data.employee_folder_number_custom_part2 || '').trim(),
-      autoCreateMissingEmployeeFolder: response.data.auto_create_missing_employee_folder !== false,
-    })
-    setProcessingPreferencesSuccess('Preferencias guardadas.')
-  }, [
-    tenantId,
-    filenameFormatMode,
-    customFilenameFormat,
-    employeeFolderNumberMode,
-    employeeFolderCustomPart1,
-    employeeFolderCustomPart2,
-    autoCreateMissingEmployeeFolder,
-  ])
-
-  const hasProcessingChanges = useMemo(() => {
-    if (!processingPrefsInitial) {
-      return false
-    }
-    const customA = JSON.stringify(processingPrefsInitial.customFilenameFormat)
-    const customB = JSON.stringify(customFilenameFormat)
-    return (
-      processingPrefsInitial.filenameFormatMode !== filenameFormatMode ||
-      customA !== customB ||
-      processingPrefsInitial.employeeFolderNumberMode !== employeeFolderNumberMode ||
-      processingPrefsInitial.employeeFolderCustomPart1 !== employeeFolderCustomPart1 ||
-      processingPrefsInitial.employeeFolderCustomPart2 !== employeeFolderCustomPart2 ||
-      processingPrefsInitial.autoCreateMissingEmployeeFolder !== autoCreateMissingEmployeeFolder
-    )
-  }, [
-    processingPrefsInitial,
-    filenameFormatMode,
-    customFilenameFormat,
-    employeeFolderNumberMode,
-    employeeFolderCustomPart1,
-    employeeFolderCustomPart2,
-    autoCreateMissingEmployeeFolder,
-  ])
-
   const saveAutomationRules = useCallback(async () => {
     setAutomationRulesSaving(true)
     if (typeof window !== 'undefined') {
@@ -3371,35 +3498,6 @@ function BackofficeApp() {
     setAutomationRulesSuccess('Reglas guardadas.')
     setAutomationRulesSaving(false)
   }, [tenantId, cronDateTime, retryOnError, notifyOnFailure])
-
-  const onFilenameFormatChange = useCallback((mode: FilenameFormatMode) => {
-    setFilenameFormatMode(mode)
-    setProcessingPreferencesSuccess('')
-    setProcessingPreferencesError('')
-    if (mode === 'custom') {
-      setCustomFormatError('')
-      setShowCustomFilenameModal(true)
-    }
-  }, [])
-
-  const onEmployeeFolderModeChange = useCallback((mode: EmployeeFolderNumberMode) => {
-    setEmployeeFolderNumberMode(mode)
-    setProcessingPreferencesSuccess('')
-    setProcessingPreferencesError('')
-    if (mode === 'custom') {
-      setCustomEmployeeFolderError('')
-      setShowCustomEmployeeFolderModal(true)
-    }
-  }, [])
-
-  const updateCustomFormatField = useCallback(
-    <K extends keyof FilenameCustomFormat,>(key: K, value: FilenameCustomFormat[K]) => {
-      setCustomFormatError('')
-      setProcessingPreferencesError('')
-      setCustomFilenameFormat((prev) => ({ ...prev, [key]: value }))
-    },
-    [],
-  )
 
   useEffect(() => {
     async function init() {
@@ -3540,6 +3638,7 @@ function BackofficeApp() {
       setPendingFiles([])
       const lowered = (response.error || '').toLowerCase()
       if (lowered.includes('unlinked') || lowered.includes('oauth')) {
+        setIsConnected(false)
         setProcessError('Necesitás conectar una cuenta de Google Drive para procesar.')
         setShowConnectRequiredModal(true)
       } else {
@@ -3648,12 +3747,12 @@ function BackofficeApp() {
         void loadNominaEmployees()
       }
       if (section === 'configuracion') {
-        void loadProcessingPreferences()
+        loadAutomationRules()
         void loadPendingFiles()
         void loadTemplatesForTenant(true)
       }
     },
-    [isConnected, loadNominaEmployees, loadPendingFiles, loadProcessingPreferences, loadTemplatesForTenant, refreshPendingFiles],
+    [isConnected, loadAutomationRules, loadNominaEmployees, loadPendingFiles, loadTemplatesForTenant, refreshPendingFiles],
   )
 
   useEffect(() => {
@@ -3788,6 +3887,7 @@ function BackofficeApp() {
     if (!response.ok || !response.data?.job_id) {
       const lowered = (response.error || '').toLowerCase()
       if (lowered.includes('unlinked') || lowered.includes('oauth')) {
+        setIsConnected(false)
         setProcessError('Necesitás conectar una cuenta de Google Drive para procesar.')
         setShowConnectRequiredModal(true)
       } else {
@@ -3940,6 +4040,14 @@ function BackofficeApp() {
       },
     ],
     [classificationRuleFieldOptions],
+  )
+  const templateFormatField = useMemo(
+    () => templateEditor.fields.find((field) => field.id === templateFormatFieldId) || null,
+    [templateEditor.fields, templateFormatFieldId],
+  )
+  const templateFormatSourceValue = useMemo(
+    () => templateFormatField?.detectedValue || templateFormatField?.sampleValue || '',
+    [templateFormatField],
   )
   const folderRuleNodes = useMemo(
     () => classificationRuleNodes.filter((node) => node.nodeType === 'folder'),
@@ -4488,104 +4596,158 @@ function BackofficeApp() {
           <main className="content process-content">
             <section className="section-page-header" aria-label="Encabezado de configuracion">
               <h2>Configuracion</h2>
-              <p>Administra preferencias de procesamiento y automatizacion.</p>
+              <p>Administra plantillas, reglas y automatizacion.</p>
             </section>
             <div className="process-layout settings-layout">
               <div className="settings-cards-grid">
-                <section className="pending-card settings-card settings-card-half" aria-label="Configuración de preferencias">
+                <section className="pending-card settings-card settings-card-half" aria-label="ABM de plantillas y reglas de procesamiento">
                   <div className="settings-body">
-                    <h4>Procesador de documentos</h4>
+                    <div className="settings-card-header">
+                      <h4>Plantillas y reglas de procesamiento</h4>
+                      <span className="settings-chip">ABM</span>
+                    </div>
+                    <p className="settings-preview">
+                      Definí plantillas para detectar zonas de un PDF y guardar campos reutilizables. Cada plantilla
+                      permite dibujar áreas, validar el valor detectado y asignar un campo editable.
+                    </p>
                     <div className="settings-field">
-                      <label htmlFor="filename-format-select">Nombre del archivo</label>
+                      <label htmlFor="template-source-file">Archivo de ejemplo</label>
                       <select
-                        id="filename-format-select"
+                        id="template-source-file"
                         className="year-select"
-                        value={filenameFormatMode}
-                        onChange={(event) => onFilenameFormatChange(event.target.value as FilenameFormatMode)}
-                        disabled={processingPreferencesLoading || processingPreferencesSaving}
+                        value={selectedDraftFileId}
+                        onChange={(event) => {
+                          setSelectedDraftFileId(event.target.value)
+                          if (event.target.value) {
+                            setUploadedTemplateFile(null)
+                            if (templateUploadInputRef.current) {
+                              templateUploadInputRef.current.value = ''
+                            }
+                          }
+                          setTemplateError('')
+                          setTemplateSuccess('')
+                        }}
+                        disabled={templateDraftLoading || templatesLoading}
                       >
-                        <option value="mm_yyyy_employee">MM-YYYY) Nombre del colaborador</option>
-                        <option value="yyyy_mm_employee">YYYY-MM) Nombre del colaborador</option>
-                        <option value="yyyy_employee">YYYY) Nombre del colaborador</option>
-                        <option value="custom">Custom</option>
+                        <option value="">Seleccionar PDF de INPUT</option>
+                        {pendingFiles.map((file) => (
+                          <option key={file.id} value={file.id}>
+                            {file.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
-                    <p className="settings-preview">
-                      <strong>Vista previa:</strong> {buildFilenamePreview(filenameFormatMode, customFilenameFormat)}
-                    </p>
-                    <hr className="settings-divider" />
-                    <div className="settings-field settings-field-inline-label">
-                      <label>Nombre de carpeta del colaborador</label>
-                    </div>
-                    <div className="settings-inline-row">
+                    {templateLocalUploadEnabled && (
                       <div className="settings-field">
-                        <select
-                          id="employee-folder-mode-select"
-                          className="year-select"
-                          value={employeeFolderNumberMode}
-                          onChange={(event) => onEmployeeFolderModeChange(event.target.value as EmployeeFolderNumberMode)}
-                          disabled={processingPreferencesLoading || processingPreferencesSaving}
-                        >
-                          <option value="indexed_number">#Numero</option>
-                          <option value="number_only">Numero</option>
-                          <option value="no_index">Sin indice</option>
-                          <option value="custom">Custon (indice fijo)</option>
-                        </select>
-                      </div>
-                      <div className="settings-fixed-field" aria-label="Campo fijo de carpeta empleado">
-                        <div className="settings-fixed-value">Nombre del colaborador</div>
-                      </div>
-                    </div>
-                    <p className="settings-preview">
-                      <strong>Vista previa:</strong>{' '}
-                      {buildEmployeeFolderPreview(
-                        employeeFolderNumberMode,
-                        employeeFolderCustomPart1,
-                        employeeFolderCustomPart2,
-                      )}
-                    </p>
-                    <p className="settings-hint">Si el indice tiene numero sera incremental.</p>
-                    <hr className="settings-divider" />
-                    <div className="settings-field settings-field-inline-label">
-                      <label>Existencia del colaborador</label>
-                    </div>
-                    <p className="settings-preview">
-                      Si el colaborador aun no fue registrado en la nomina ¿Desea crear automaticamente la carpeta?
-                    </p>
-                    <div className="settings-radio-row" role="radiogroup" aria-label="Crear carpeta de colaborador automáticamente">
-                      <label className="settings-radio-option">
+                        <label htmlFor="template-source-local-file">Subir archivo modelo (PDF)</label>
                         <input
-                          type="radio"
-                          name="auto-create-collaborator-folder"
-                          checked={autoCreateMissingEmployeeFolder}
-                          onChange={() => setAutoCreateMissingEmployeeFolder(true)}
-                          disabled={processingPreferencesLoading || processingPreferencesSaving}
+                          id="template-source-local-file"
+                          ref={templateUploadInputRef}
+                          className="settings-input"
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files && event.target.files.length > 0 ? event.target.files[0] : null
+                            setUploadedTemplateFile(file)
+                            if (file) {
+                              setSelectedDraftFileId('')
+                            }
+                            setTemplateError('')
+                            setTemplateSuccess('')
+                          }}
+                          disabled={templateDraftLoading}
                         />
-                        <span>Si</span>
-                      </label>
-                      <label className="settings-radio-option">
-                        <input
-                          type="radio"
-                          name="auto-create-collaborator-folder"
-                          checked={!autoCreateMissingEmployeeFolder}
-                          onChange={() => setAutoCreateMissingEmployeeFolder(false)}
-                          disabled={processingPreferencesLoading || processingPreferencesSaving}
-                        />
-                        <span>No (El archivo no se procesará generando un error)</span>
-                      </label>
-                    </div>
-                    <div className="settings-actions settings-actions-bottom">
+                        {uploadedTemplateFile && <p className="settings-preview">Archivo local: {uploadedTemplateFile.name}</p>}
+                      </div>
+                    )}
+                    <div className="settings-actions">
                       <button
                         type="button"
                         className="modal-primary"
-                        onClick={() => void saveProcessingPreferences()}
-                        disabled={processingPreferencesLoading || processingPreferencesSaving || !hasProcessingChanges}
+                        onClick={() => void createTemplateDraft()}
+                        disabled={(!selectedDraftFileId && (!templateLocalUploadEnabled || !uploadedTemplateFile)) || templateDraftLoading}
                       >
-                        {processingPreferencesSaving ? 'Guardando...' : 'Guardar'}
+                        {templateDraftLoading ? 'Cargando PDF...' : 'Crear plantilla'}
                       </button>
                     </div>
-                    {processingPreferencesError && <p className="oauth-feedback error">{processingPreferencesError}</p>}
-                    {processingPreferencesSuccess && <p className="oauth-feedback success">{processingPreferencesSuccess}</p>}
+                    <hr className="settings-divider" />
+                    <div className="settings-card-header">
+                      <h4>Plantillas guardadas</h4>
+                      <span className="settings-chip">{documentTemplates.length}</span>
+                    </div>
+                    <div className="template-saved-list">
+                      {templatesLoading && <p>Cargando plantillas...</p>}
+                      {!templatesLoading && documentTemplates.length === 0 && <p>No hay plantillas guardadas todavía.</p>}
+                      {!templatesLoading &&
+                        documentTemplates.map((template) => (
+                          <article key={template.template_id} className="template-saved-item">
+                            <div className="template-saved-main">
+                              <strong>{template.name}</strong>
+                              <span>
+                                {template.is_active ? 'Activa' : 'Inactiva'} · {resolveRuleStatusLabel(template.rule_status)} · Actualizada{' '}
+                                {formatDateTime(template.updated_at)}
+                              </span>
+                            </div>
+                            <div
+                              ref={templateListActionMenuId === template.template_id ? templateListMenuWrapRef : null}
+                              className="template-item-actions template-list-menu-wrap"
+                            >
+                              <button
+                                type="button"
+                                className="template-list-menu-trigger"
+                                onClick={(event) => toggleTemplateListActionMenu(template.template_id, event.currentTarget)}
+                                disabled={templateActionLoadingId === template.template_id}
+                                aria-label={`Acciones para ${template.name}`}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                              {templateListActionMenuId === template.template_id && templateListActionMenuPosition && (
+                                <div
+                                  className="template-list-menu"
+                                  style={{
+                                    top: templateListActionMenuPosition.top,
+                                    left: templateListActionMenuPosition.left,
+                                    transform: templateListActionMenuPosition.openUp ? 'translateY(-100%)' : undefined,
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="template-list-menu-item"
+                                    onClick={() => {
+                                      closeTemplateListActionMenu()
+                                      void openClassificationRuleEditor(template.template_id, false)
+                                    }}
+                                    disabled={templateActionLoadingId === template.template_id}
+                                  >
+                                    Regla de procesamiento
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="template-list-menu-item"
+                                    onClick={() => {
+                                      closeTemplateListActionMenu()
+                                      void loadTemplateIntoEditor(template.template_id)
+                                    }}
+                                    disabled={templateActionLoadingId === template.template_id}
+                                  >
+                                    {templateActionLoadingId === template.template_id ? 'Cargando...' : 'Editar plantilla'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="template-list-menu-item template-list-menu-item-danger"
+                                    onClick={() => void removeTemplate(template.template_id)}
+                                    disabled={templateActionLoadingId === template.template_id}
+                                  >
+                                    Eliminar plantilla
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                    {templateError && <p className="oauth-feedback error">{templateError}</p>}
+                    {templateSuccess && <p className="oauth-feedback success">{templateSuccess}</p>}
                   </div>
                 </section>
 
@@ -4675,148 +4837,6 @@ function BackofficeApp() {
                       </button>
                     </div>
                     {automationRulesSuccess && <p className="oauth-feedback success">{automationRulesSuccess}</p>}
-                  </div>
-                </section>
-
-                <section className="pending-card settings-card settings-card-full" aria-label="ABM de plantillas de documentos">
-                  <div className="settings-body">
-                    <div className="settings-card-header">
-                      <h4>Plantillas de documentos</h4>
-                      <span className="settings-chip">ABM</span>
-                    </div>
-                    <p className="settings-preview">
-                      Definí plantillas para detectar zonas de un PDF y guardar campos reutilizables. Cada plantilla
-                      permite dibujar áreas, validar el valor detectado y asignar un campo editable.
-                    </p>
-                    <p className="settings-preview">
-                      Podés crear la plantilla desde un PDF de <strong>INPUT</strong>.
-                    </p>
-                    <div className="settings-field">
-                      <label htmlFor="template-source-file">Archivo de ejemplo</label>
-                      <select
-                        id="template-source-file"
-                        className="year-select"
-                        value={selectedDraftFileId}
-                        onChange={(event) => {
-                          setSelectedDraftFileId(event.target.value)
-                          if (event.target.value) {
-                            setUploadedTemplateFile(null)
-                            if (templateUploadInputRef.current) {
-                              templateUploadInputRef.current.value = ''
-                            }
-                          }
-                          setTemplateError('')
-                          setTemplateSuccess('')
-                        }}
-                        disabled={templateDraftLoading || templatesLoading}
-                      >
-                        <option value="">Seleccionar PDF de INPUT</option>
-                        {pendingFiles.map((file) => (
-                          <option key={file.id} value={file.id}>
-                            {file.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {templateLocalUploadEnabled && (
-                      <div className="settings-field">
-                        <label htmlFor="template-source-local-file">Subir archivo modelo (PDF)</label>
-                        <input
-                          id="template-source-local-file"
-                          ref={templateUploadInputRef}
-                          className="settings-input"
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={(event) => {
-                            const file = event.target.files && event.target.files.length > 0 ? event.target.files[0] : null
-                            setUploadedTemplateFile(file)
-                            if (file) {
-                              setSelectedDraftFileId('')
-                            }
-                            setTemplateError('')
-                            setTemplateSuccess('')
-                          }}
-                          disabled={templateDraftLoading}
-                        />
-                        {uploadedTemplateFile && <p className="settings-preview">Archivo local: {uploadedTemplateFile.name}</p>}
-                      </div>
-                    )}
-                    <div className="settings-actions">
-                      <button
-                        type="button"
-                        className="modal-primary"
-                        onClick={() => void createTemplateDraft()}
-                        disabled={(!selectedDraftFileId && (!templateLocalUploadEnabled || !uploadedTemplateFile)) || templateDraftLoading}
-                      >
-                        {templateDraftLoading ? 'Cargando PDF...' : 'Crear plantilla'}
-                      </button>
-                      <button
-                        type="button"
-                        className="modal-secondary"
-                        onClick={() => {
-                          setSelectedDraftFileId('')
-                          setUploadedTemplateFile(null)
-                          if (templateUploadInputRef.current) {
-                            templateUploadInputRef.current.value = ''
-                          }
-                          setTemplateError('')
-                          setTemplateSuccess('')
-                        }}
-                        disabled={templateSaving}
-                      >
-                        Limpiar
-                      </button>
-                    </div>
-                    <hr className="settings-divider" />
-                    <div className="settings-card-header">
-                      <h4>Plantillas guardadas</h4>
-                      <span className="settings-chip">{documentTemplates.length}</span>
-                    </div>
-                    <div className="template-saved-list">
-                      {templatesLoading && <p>Cargando plantillas...</p>}
-                      {!templatesLoading && documentTemplates.length === 0 && <p>No hay plantillas guardadas todavía.</p>}
-                      {!templatesLoading &&
-                        documentTemplates.map((template) => (
-                          <article key={template.template_id} className="template-saved-item">
-                            <div>
-                              <strong>{template.name}</strong>
-                              <p>{template.description || 'Sin descripcion'}</p>
-                              <span>
-                                {template.is_active ? 'Activa' : 'Inactiva'} · {resolveRuleStatusLabel(template.rule_status)} · Actualizada{' '}
-                                {formatDateTime(template.updated_at)}
-                              </span>
-                            </div>
-                            <div className="template-item-actions">
-                              <button
-                                type="button"
-                                className="link-btn"
-                                onClick={() => void loadTemplateIntoEditor(template.template_id)}
-                                disabled={templateActionLoadingId === template.template_id}
-                              >
-                                {templateActionLoadingId === template.template_id ? 'Cargando...' : 'Editar'}
-                              </button>
-                              <button
-                                type="button"
-                                className="link-btn"
-                                onClick={() => void openClassificationRuleEditor(template.template_id, false)}
-                                disabled={templateActionLoadingId === template.template_id}
-                              >
-                                Editar regla
-                              </button>
-                              <button
-                                type="button"
-                                className="link-btn link-btn-danger"
-                                onClick={() => void removeTemplate(template.template_id)}
-                                disabled={templateActionLoadingId === template.template_id}
-                              >
-                                Eliminar
-                              </button>
-                            </div>
-                          </article>
-                        ))}
-                    </div>
-                    {templateError && <p className="oauth-feedback error">{templateError}</p>}
-                    {templateSuccess && <p className="oauth-feedback success">{templateSuccess}</p>}
                   </div>
                 </section>
               </div>
@@ -5248,168 +5268,6 @@ function BackofficeApp() {
         </div>
       )}
 
-      {showCustomFilenameModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Formato custom de nombre">
-          <div className="modal-card picker-modal">
-            <h3>Formato custom</h3>
-            <p>Define los campos y separadores para establecer el formato de nombre del archivos</p>
-            <div className="custom-format-grid">
-              <select
-                className="year-select"
-                value={customFilenameFormat.part1}
-                onChange={(event) => updateCustomFormatField('part1', event.target.value as FilenameCustomFormat['part1'])}
-              >
-                {filenameTokenOptions.map((option) => (
-                  <option key={`part1-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="year-select"
-                value={customFilenameFormat.sep1}
-                onChange={(event) => updateCustomFormatField('sep1', event.target.value as FilenameCustomFormat['sep1'])}
-              >
-                {filenameSeparatorOptions.map((option) => (
-                  <option key={`sep1-${option.value || 'none'}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="year-select"
-                value={customFilenameFormat.part2}
-                onChange={(event) => updateCustomFormatField('part2', event.target.value as FilenameCustomFormat['part2'])}
-              >
-                {filenameTokenOptions.map((option) => (
-                  <option key={`part2-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="year-select"
-                value={customFilenameFormat.sep2}
-                onChange={(event) => updateCustomFormatField('sep2', event.target.value as FilenameCustomFormat['sep2'])}
-              >
-                {filenameSeparatorOptions.map((option) => (
-                  <option key={`sep2-${option.value || 'none'}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="year-select"
-                value={customFilenameFormat.part3}
-                onChange={(event) => updateCustomFormatField('part3', event.target.value as FilenameCustomFormat['part3'])}
-              >
-                {filenameTokenOptions.map((option) => (
-                  <option key={`part3-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {customFormatError && <p className="oauth-feedback error">{customFormatError}</p>}
-            <p className="settings-preview">
-              <strong>Vista previa:</strong> {buildFilenamePreview('custom', customFilenameFormat)}
-            </p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-secondary"
-                onClick={() => {
-                  setCustomFormatError('')
-                  setShowCustomFilenameModal(false)
-                }}
-              >
-                Cerrar
-              </button>
-              <button
-                type="button"
-                className="modal-primary"
-                onClick={() => {
-                  if (!hasAnyCustomFilenamePart(customFilenameFormat)) {
-                    setCustomFormatError('Al menos un campo debe tener información.')
-                    return
-                  }
-                  setFilenameFormatMode('custom')
-                  setCustomFormatError('')
-                  setShowCustomFilenameModal(false)
-                }}
-              >
-                Aplicar custom
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCustomEmployeeFolderModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Formato custom carpeta empleado">
-          <div className="modal-card picker-modal">
-            <h3>Formato custom de carpeta empleado</h3>
-            <p>Define dos campos para el indice custom del nombre de la carpeta del colaborador</p>
-            <div className="custom-format-grid">
-              <input
-                className="collaborator-search"
-                type="text"
-                value={employeeFolderCustomPart1}
-                placeholder="Campo 1"
-                onChange={(event) => {
-                  setCustomEmployeeFolderError('')
-                  setProcessingPreferencesError('')
-                  setEmployeeFolderCustomPart1(event.target.value)
-                }}
-              />
-              <input
-                className="collaborator-search"
-                type="text"
-                value={employeeFolderCustomPart2}
-                placeholder="Campo 2"
-                onChange={(event) => {
-                  setCustomEmployeeFolderError('')
-                  setProcessingPreferencesError('')
-                  setEmployeeFolderCustomPart2(event.target.value)
-                }}
-              />
-            </div>
-            {customEmployeeFolderError && <p className="oauth-feedback error">{customEmployeeFolderError}</p>}
-            <p className="settings-preview">
-              <strong>Vista previa:</strong>{' '}
-              {buildEmployeeFolderPreview('custom', employeeFolderCustomPart1, employeeFolderCustomPart2)}
-            </p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-secondary"
-                onClick={() => {
-                  setCustomEmployeeFolderError('')
-                  setShowCustomEmployeeFolderModal(false)
-                }}
-              >
-                Cerrar
-              </button>
-              <button
-                type="button"
-                className="modal-primary"
-                onClick={() => {
-                  if (!employeeFolderCustomPart1 && !employeeFolderCustomPart2) {
-                    setCustomEmployeeFolderError('Al menos un campo debe tener información.')
-                    return
-                  }
-                  setEmployeeFolderNumberMode('custom')
-                  setCustomEmployeeFolderError('')
-                  setShowCustomEmployeeFolderModal(false)
-                }}
-              >
-                Aplicar custom
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showProcessModeModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegir modo de procesamiento">
           <div className="modal-card process-mode-modal">
@@ -5555,54 +5413,14 @@ function BackofficeApp() {
                   )}
                 </div>
                 <p className="settings-preview">
-                  Dibuja una zona con el mouse sobre el PDF. Al soltar, se autocompleta el dato detectado y la etiqueta
-                  sugerida.
+                  Para crear un nuevo campo de deteccion de texto, dibuje sobre el PDF haciendo click y arrastrando el
+                  mouse.
                 </p>
               </div>
 
-              <div className="template-form-panel">
+              <div className="template-form-panel template-form-panel-inline">
                 <div className="settings-field">
-                  <label htmlFor="template-description-modal">Descripcion</label>
-                  <input
-                    id="template-description-modal"
-                    className="settings-input"
-                    value={templateEditor.description}
-                    onChange={(event) => setTemplateEditor((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="Uso interno"
-                  />
-                </div>
-                <div className="settings-field">
-                  <label htmlFor="template-field-detected-value">Dato detectado</label>
-                  <textarea
-                    id="template-field-detected-value"
-                    className="settings-input template-detected-input"
-                    value={templateFieldDraft.detectedValue}
-                    onChange={(event) =>
-                      setTemplateFieldDraft((prev) => ({
-                        ...prev,
-                        detectedValue: event.target.value,
-                      }))
-                    }
-                    placeholder="Dato detectado en la zona"
-                  />
-                </div>
-                <div className="settings-field">
-                  <label htmlFor="template-field-suggested-label">Etiqueta sugerida</label>
-                  <input
-                    id="template-field-suggested-label"
-                    className="settings-input"
-                    value={templateFieldDraft.suggestedLabel}
-                    onChange={(event) =>
-                      setTemplateFieldDraft((prev) => ({
-                        ...prev,
-                        suggestedLabel: event.target.value,
-                      }))
-                    }
-                    placeholder="Etiqueta sugerida"
-                  />
-                </div>
-                <div className="settings-field">
-                  <label htmlFor="template-field-name">Campo</label>
+                  <label htmlFor="template-field-name">Nombre del campo:</label>
                   <input
                     id="template-field-name"
                     className="settings-input"
@@ -5613,11 +5431,19 @@ function BackofficeApp() {
                         name: event.target.value,
                       }))
                     }
-                    placeholder="Ej. total_neto"
+                    placeholder="Ej. Total neto"
                   />
                 </div>
                 <div className="settings-field">
-                  <label htmlFor="template-field-type">Tipo</label>
+                  <label>Dato detectado:</label>
+                  <div className="template-detected-display">
+                    {templateFieldDraft.detectedValue.trim()
+                      ? templateFieldDraft.detectedValue.replace(/\s+/g, ' ').trim()
+                      : 'Dato detectado en la zona'}
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <label htmlFor="template-field-type">Tipo de dato:</label>
                   <select
                     id="template-field-type"
                     className="year-select"
@@ -5635,20 +5461,7 @@ function BackofficeApp() {
                     <option value="array">array</option>
                   </select>
                 </div>
-                <label className="template-toggle">
-                  <input
-                    type="checkbox"
-                    checked={templateFieldDraft.required}
-                    onChange={(event) =>
-                      setTemplateFieldDraft((prev) => ({
-                        ...prev,
-                        required: event.target.checked,
-                      }))
-                    }
-                  />
-                  <span>Campo requerido</span>
-                </label>
-                <div className="settings-actions">
+                <div className="settings-actions template-form-actions-row">
                   <button
                     type="button"
                     className="modal-primary"
@@ -5673,212 +5486,40 @@ function BackofficeApp() {
                         onMouseLeave={() => setTemplateHoveredFieldId((prev) => (prev === field.id ? null : prev))}
                       >
                         <div className="template-saved-main">
-                          <div>
-                            <strong>{field.name}</strong>
-                            <p>{field.suggestedLabel || field.label || 'Sin etiqueta sugerida'}</p>
-                            <span>{sourceValue || 'Sin valor detectado'}</span>
-                          </div>
-
-                          <div className="template-field-transform-panel">
-                            <div className="template-field-transform-header">
-                              <span>Transformaciones ({field.transforms.length}/3)</span>
+                          <div className="template-saved-card-header">
+                            <div className="template-saved-card-title-wrap">
+                              <strong>{field.name}</strong>
+                              <p>{field.type}</p>
+                            </div>
+                            <div className="template-item-actions">
                               <button
                                 type="button"
-                                className="modal-secondary"
-                                onClick={() => addTemplateFieldTransformStep(field.id)}
-                                disabled={field.transforms.length >= 3}
+                                className="template-field-edit-btn"
+                                onClick={() => openTemplateFieldFormatModal(field.id)}
+                                aria-label={`${field.transforms.length > 0 ? 'Editar' : 'Configurar'} formato para ${field.name}`}
                               >
-                                + Paso
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                className="template-field-delete-btn"
+                                onClick={() => removeTemplateFieldFromEditor(field.id)}
+                                aria-label={`Eliminar ${field.name}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
-
-                            {field.transforms.length === 0 ? (
-                              <p className="settings-preview">Sin transformaciones (valor identidad).</p>
-                            ) : (
-                              <div className="template-transform-steps">
-                                {field.transforms.map((step, stepIndex) => (
-                                  <div key={step.id} className="template-transform-step-row">
-                                    <span className="template-transform-step-index">Paso {stepIndex + 1}</span>
-                                    <select
-                                      className="year-select"
-                                      value={step.operation}
-                                      onChange={(event) =>
-                                        updateTemplateFieldTransformStep(field.id, step.id, (current) => {
-                                          const operation = normalizeTransformOperation(event.target.value)
-                                          const next = createTransformStepDraft(operation)
-                                          next.id = current.id
-                                          return next
-                                        })
-                                      }
-                                    >
-                                      {transformOperationOptions.map((option) => (
-                                        <option key={`${step.id}-${option.value}`} value={option.value}>
-                                          {option.label}
-                                        </option>
-                                      ))}
-                                    </select>
-
-                                    {step.operation === 'replace' && (
-                                      <div className="template-transform-params">
-                                        <input
-                                          className="settings-input"
-                                          placeholder="from"
-                                          value={step.from}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              from: event.target.value,
-                                            }))
-                                          }
-                                        />
-                                        <input
-                                          className="settings-input"
-                                          placeholder="to"
-                                          value={step.to}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              to: event.target.value,
-                                            }))
-                                          }
-                                        />
-                                      </div>
-                                    )}
-
-                                    {step.operation === 'remove_chars' && (
-                                      <div className="template-transform-params">
-                                        <input
-                                          className="settings-input"
-                                          placeholder="Caracteres a remover"
-                                          value={step.chars}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              chars: event.target.value,
-                                            }))
-                                          }
-                                        />
-                                      </div>
-                                    )}
-
-                                    {step.operation === 'split' && (
-                                      <div className="template-transform-params">
-                                        <input
-                                          className="settings-input"
-                                          placeholder="Separador"
-                                          value={step.delimiter}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              delimiter: event.target.value,
-                                            }))
-                                          }
-                                        />
-                                        <input
-                                          className="settings-input"
-                                          placeholder="Indice (1..n)"
-                                          value={step.index}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              index: event.target.value,
-                                            }))
-                                          }
-                                        />
-                                      </div>
-                                    )}
-
-                                    {step.operation === 'case' && (
-                                      <div className="template-transform-params">
-                                        <select
-                                          className="year-select"
-                                          value={step.mode}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              mode:
-                                                event.target.value === 'upper'
-                                                  ? 'upper'
-                                                  : event.target.value === 'title'
-                                                    ? 'title'
-                                                    : 'lower',
-                                            }))
-                                          }
-                                        >
-                                          {transformCaseModeOptions.map((option) => (
-                                            <option key={`${step.id}-${option.value}`} value={option.value}>
-                                              {option.label}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
-
-                                    {step.operation === 'date_format' && (
-                                      <div className="template-transform-params">
-                                        <select
-                                          className="year-select"
-                                          value={step.output}
-                                          onChange={(event) =>
-                                            updateTemplateFieldTransformStep(field.id, step.id, (current) => ({
-                                              ...current,
-                                              output:
-                                                event.target.value === 'DD' ||
-                                                event.target.value === 'MM' ||
-                                                event.target.value === 'YYYY' ||
-                                                event.target.value === 'MM/YYYY' ||
-                                                event.target.value === 'YYYY-MM' ||
-                                                event.target.value === 'MMM' ||
-                                                event.target.value === 'MMMM'
-                                                  ? event.target.value
-                                                  : 'YYYY',
-                                            }))
-                                          }
-                                        >
-                                          {transformDateOutputOptions.map((option) => (
-                                            <option key={`${step.id}-${option.value}`} value={option.value}>
-                                              {option.label}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
-
-                                    {step.operation === 'trim' && <p className="settings-preview">Sin parámetros.</p>}
-
-                                    <button
-                                      type="button"
-                                      className="link-btn link-btn-danger"
-                                      onClick={() => removeTemplateFieldTransformStep(field.id, step.id)}
-                                    >
-                                      Quitar
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="template-transform-preview">
-                              <p className="settings-preview"><strong>Vista previa:</strong></p>
-                              <p className="settings-preview">Original: {preview.snapshots[0] || '(vacio)'}</p>
-                              {field.transforms.map((step, stepIndex) => (
-                                <p key={`${field.id}-preview-${step.id}`} className="settings-preview">
-                                  Paso {stepIndex + 1}: {preview.snapshots[stepIndex + 1] || '(vacio)'}
-                                </p>
-                              ))}
-                              <p className="settings-preview"><strong>Resultado:</strong> {preview.result || '(vacio)'}</p>
-                              {preview.error && <p className="settings-hint">{preview.error}</p>}
-                            </div>
                           </div>
-                        </div>
-                        <div className="template-item-actions">
-                          <button
-                            type="button"
-                            className="link-btn link-btn-danger"
-                            onClick={() => removeTemplateFieldFromEditor(field.id)}
-                          >
-                            Eliminar
-                          </button>
+                          <div className="template-saved-summary-grid">
+                            {field.transforms.length > 0 ? (
+                              <p className="template-saved-summary-item template-saved-summary-item-result">
+                                <strong>{preview.result || '(vacio)'}</strong>
+                              </p>
+                            ) : (
+                              <p className="template-saved-empty-state">{sourceValue || 'Sin valor detectado'}</p>
+                            )}
+                          </div>
+                          {preview.error && <p className="settings-hint">{preview.error}</p>}
                         </div>
                       </article>
                     )
@@ -5888,16 +5529,107 @@ function BackofficeApp() {
             </div>
 
             {templateError && <p className="oauth-feedback error">{templateError}</p>}
-            {templateSuccess && <p className="oauth-feedback success">{templateSuccess}</p>}
+          </div>
+        </div>
+      )}
+
+      {showTemplateEditorModal && templateFormatField && (
+        <div className="modal-overlay template-format-modal-overlay" role="dialog" aria-modal="true" aria-label="Configurar formato">
+          <div className="modal-card template-format-modal-card">
+            <div className="template-format-modal-header">
+              <div>
+                <h3>Formato de campo</h3>
+                <p>
+                  Al crear un campo, te mostraremos el posible valor detectado, podes aplicar reglas para darle el
+                  formato adecuado a tu campo.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="template-format-modal-close"
+                onClick={closeTemplateFieldFormatModal}
+                aria-label="Cerrar configuracion de formato"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="template-format-modal-body">
+              <div className="template-format-divider" />
+              <div className="template-format-modal-summary">
+                <div className="template-format-detail-row">
+                  <span className="template-format-detail-label">Campo:</span>
+                  <div className="template-format-detail-value-wrap">
+                    {templateFormatNameEditing ? (
+                      <input
+                        className="settings-input template-format-name-input"
+                        value={templateFormatNameDraft}
+                        onChange={(event) => setTemplateFormatNameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            setTemplateFormatNameEditing(false)
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setTemplateFormatNameDraft(templateFormatField.name)
+                            setTemplateFormatNameEditing(false)
+                          }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <strong>{templateFormatNameDraft || templateFormatField.name}</strong>
+                    )}
+                    <button
+                      type="button"
+                      className="template-format-inline-action"
+                      onClick={() => {
+                        if (templateFormatNameEditing) {
+                          setTemplateFormatNameEditing(false)
+                          return
+                        }
+                        setTemplateFormatNameEditing(true)
+                      }}
+                      aria-label="Editar nombre del campo"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <p className="template-format-detail-row">
+                  <span className="template-format-detail-label">Valor detectado:</span>
+                  <strong>{templateFormatSourceValue || 'Sin valor detectado'}</strong>
+                </p>
+              </div>
+
+              <TemplateFieldFormatEditor
+                fieldKey={templateFormatField.key}
+                steps={templateFormatDraftSteps}
+                sourceValue={templateFormatSourceValue}
+                onAddStep={addTemplateFieldFormatDraftStep}
+                onUpdateStep={updateTemplateFieldFormatDraftStep}
+                onRemoveStep={removeTemplateFieldFormatDraftStep}
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="modal-secondary" onClick={closeTemplateFieldFormatModal}>
+                Cancelar
+              </button>
+              <button type="button" className="modal-primary" onClick={saveTemplateFieldFormat}>
+                Guardar
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {showClassificationRuleModal && (
-        <div className="fixed inset-0 z-[1000] bg-slate-900/35 p-2.5 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
-          <div className="mx-auto flex h-[min(90vh,860px)] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center overflow-y-auto bg-slate-900/35 p-2.5 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
+          <div className="flex h-[min(90vh,860px)] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
-              <div className="flex min-w-0 items-start gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#3a5f0b] text-white">
                   <SlidersHorizontal className="h-4.5 w-4.5" />
                 </div>
@@ -5906,11 +5638,11 @@ function BackofficeApp() {
                     <h3 className="text-lg font-extrabold tracking-tight text-slate-800 md:text-[22px]">Configurar Regla de Procesamiento</h3>
                     {classificationRuleMandatory && <span className="inline-flex h-6 items-center rounded-full border border-blue-200 bg-blue-50 px-2 text-[11px] font-bold text-blue-700">Obligatorio</span>}
                   </div>
-                  <p className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                    RECIBOX <ChevronRight className="h-3 w-3" /> Folder <ChevronRight className="h-3 w-3" /> File
+                  <p className="w-full text-xs leading-relaxed text-slate-500">
+                    Elegi como queres procesar tus archivos en base a los campos seleccionados de una plantilla. Podes definir cuando se crea una o mas carpeta, y cual sera el nombre de los directorios y el archivo procesado
                   </p>
                   <p className="text-xs text-slate-500">
-                    Plantilla: <strong className="text-slate-700">{classificationRuleTemplateLabel}</strong>
+                    Plantilla seleccionada: <strong className="text-slate-700">{classificationRuleTemplateLabel}</strong>
                   </p>
                 </div>
               </div>
@@ -6213,10 +5945,37 @@ function BackofficeApp() {
                   disabled={classificationRuleLoading || classificationRuleSaving}
                 >
                   <Save className="h-4 w-4" />
-                  {classificationRuleSaving ? 'Guardando...' : 'Guardar Regla'}
+                  {classificationRuleSaving ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </footer>
+          </div>
+        </div>
+      )}
+
+      {showClassificationRuleExitConfirmModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Salir sin guardar cambios">
+          <div className="modal-card">
+            <h3>Salir sin guardar cambios</h3>
+            <p>Hay niveles sin configurar. Si salis ahora, se perderan los cambios no guardados.</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => setShowClassificationRuleExitConfirmModal(false)}
+                disabled={classificationRuleSaving}
+              >
+                Continuar editando
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={closeClassificationRuleEditor}
+                disabled={classificationRuleSaving}
+              >
+                Salir sin guardar
+              </button>
+            </div>
           </div>
         </div>
       )}
