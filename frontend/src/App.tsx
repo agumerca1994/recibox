@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   CalendarDays,
@@ -40,16 +41,17 @@ import {
   getTemplate,
   getTemplateClassificationRule,
   getGoogleOAuthStatus,
-  getJobStatus,
   ingestDrive,
   listEmployeeFolders,
   listEmployeeYears,
   listFilesInFolder,
   listDriveFiles,
+  listProcessRuns,
   listPickerFolders,
   listTemplates,
   putTemplateClassificationRule,
   putTenantDriveConfig,
+  stopJob,
   unlinkGoogleOAuth,
   uploadTemplateSourcePdf,
   updateTemplate,
@@ -61,6 +63,7 @@ import type {
   DriveFile,
   DriveFolder,
   JobStatusResponse,
+  ProcessRunRecord,
   ReciboxStructureCheckResponse,
   TemplateFieldType,
   TemplateRect,
@@ -85,6 +88,8 @@ const defaultTenant = normalizeTenantId(import.meta.env.VITE_TENANT_ID || 'acme'
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
 const pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 const templateLocalUploadEnabled = (getRuntimeSetting('VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED') || 'false').toLowerCase() === 'true'
+const legacyProcessingFlowEnabled =
+  (getRuntimeSetting('VITE_ENABLE_LEGACY_PROCESSING_FLOW') || 'false').toLowerCase() === 'true'
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc
 const pdfWorkerLoadErrorMessage =
   'No se pudo cargar el worker PDF; revisar MIME `.mjs` en frontend y volver a intentar.'
@@ -117,7 +122,7 @@ type FloatingMenuPosition = {
 }
 
 type Section = 'cuenta' | 'procesar' | 'nomina' | 'configuracion'
-type ProcessState = 'running' | 'success' | 'error'
+type ProcessState = 'running' | 'success' | 'error' | 'paused'
 type SortOrder = 'asc' | 'desc'
 type ProcessingMode = 'default' | 'template'
 
@@ -128,6 +133,7 @@ type ProcessItem = {
   state: ProcessState
   detail: JobStatusResponse | null
   createdAt: number
+  createdAtIso: string | null
 }
 
 type RunMetrics = {
@@ -858,50 +864,63 @@ function compareEmployeeFolders(a: DriveFolder, b: DriveFolder): number {
   return a.id.localeCompare(b.id)
 }
 
-function mapJobState(status: string | undefined, detail: JobStatusResponse | null): ProcessState {
-  const value = (status || '').toLowerCase()
-  const result = detail?.result
-  if (value === 'finished' && result && typeof result === 'object') {
-    const resultObj = result as Record<string, unknown>
-    const flowStatus = typeof resultObj.status === 'string' ? resultObj.status.toLowerCase() : ''
-    const errorCount = typeof resultObj.error === 'number' ? resultObj.error : 0
-    if (flowStatus === 'partial' || flowStatus === 'error' || errorCount > 0) {
-      return 'error'
-    }
+function mapProcessRunItem(record: ProcessRunRecord): ProcessItem {
+  const createdAtIso = record.created_at || record.detail?.created_at || null
+  const createdAt = createdAtIso ? new Date(createdAtIso).getTime() : 0
+  return {
+    id: record.id || record.job_id,
+    jobId: record.job_id,
+    name: record.name,
+    state: record.state,
+    detail: record.detail || null,
+    createdAt: Number.isNaN(createdAt) ? 0 : createdAt,
+    createdAtIso,
   }
-  if (value === 'finished') {
-    return 'success'
+}
+
+function getProcessStateLabel(state: ProcessState): string {
+  if (state === 'running') {
+    return 'En curso'
   }
-  if (value === 'queued' || value === 'started' || value === 'deferred' || value === 'scheduled') {
-    return 'running'
+  if (state === 'success') {
+    return 'Exito'
   }
-  return 'error'
+  if (state === 'paused') {
+    return 'Pausado'
+  }
+  return 'Error'
+}
+
+function formatProcessName(item: ProcessItem): string {
+  const timestamp = item.createdAtIso || item.detail?.created_at || null
+  return `${item.name} - ${formatDateTime(timestamp)}`
 }
 
 function extractRunMetrics(detail: JobStatusResponse | null): RunMetrics {
-  const fallback: RunMetrics = {
-    totalProcessed: null,
-    success: null,
-    error: null,
-    flowStatus: null,
-    message: null,
-    logPath: null,
-  }
+  const asNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null)
+  const asText = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+  const progress =
+    detail?.progress && typeof detail.progress === 'object' ? (detail.progress as Record<string, unknown>) : null
 
   if (!detail?.result || typeof detail.result !== 'object') {
-    return fallback
+    return {
+      totalProcessed: asNumber(progress?.processed),
+      success: asNumber(progress?.ok),
+      error: asNumber(progress?.error),
+      flowStatus: asText(progress?.status),
+      message: asText(progress?.message),
+      logPath: null,
+    }
   }
 
   const result = detail.result as Record<string, unknown>
-  const asNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null)
-  const asText = (value: unknown): string | null => (typeof value === 'string' ? value : null)
 
   return {
-    totalProcessed: asNumber(result.processed),
-    success: asNumber(result.ok),
-    error: asNumber(result.error),
-    flowStatus: asText(result.status),
-    message: asText(result.message),
+    totalProcessed: asNumber(result.processed) ?? asNumber(progress?.processed),
+    success: asNumber(result.ok) ?? asNumber(progress?.ok),
+    error: asNumber(result.error) ?? asNumber(progress?.error),
+    flowStatus: asText(result.status) ?? asText(progress?.status),
+    message: asText(result.message) ?? asText(progress?.message),
     logPath: asText(result.log),
   }
 }
@@ -2165,12 +2184,14 @@ function BackofficeApp() {
   const [pendingFiles, setPendingFiles] = useState<DriveFile[]>([])
   const [processLoading, setProcessLoading] = useState(false)
   const [processError, setProcessError] = useState('')
-  const [processingMode, setProcessingMode] = useState<ProcessingMode>('default')
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>(legacyProcessingFlowEnabled ? 'default' : 'template')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [selectedPendingFileIds, setSelectedPendingFileIds] = useState<string[]>([])
   const [showProcessModeModal, setShowProcessModeModal] = useState(false)
-  const [refreshingProcessId, setRefreshingProcessId] = useState<string | null>(null)
   const [processItems, setProcessItems] = useState<ProcessItem[]>([])
   const [selectedProcess, setSelectedProcess] = useState<ProcessItem | null>(null)
+  const [processPauseCandidate, setProcessPauseCandidate] = useState<ProcessItem | null>(null)
+  const [stoppingProcessId, setStoppingProcessId] = useState<string | null>(null)
   const [employees, setEmployees] = useState<DriveFolder[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
   const [employeeYears, setEmployeeYears] = useState<DriveFolder[]>([])
@@ -2250,6 +2271,8 @@ function BackofficeApp() {
     }
     return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
   })
+  const pendingSelectAllRef = useRef<HTMLInputElement | null>(null)
+  const processItemsRef = useRef<ProcessItem[]>([])
   const profilePopoverRef = useRef<HTMLDivElement | null>(null)
   const templateListMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const templateCanvasRef = useRef<HTMLDivElement | null>(null)
@@ -3650,6 +3673,12 @@ function BackofficeApp() {
     setPendingFiles(response.data?.files ?? [])
   }, [tenantId, isConnected])
 
+  const refreshConfigurationData = useCallback(() => {
+    loadAutomationRules()
+    void loadPendingFiles()
+    void loadTemplatesForTenant(true)
+  }, [loadAutomationRules, loadPendingFiles, loadTemplatesForTenant])
+
   const loadNominaFilesForFolder = useCallback(
     async (folderId: string) => {
       if (!folderId) {
@@ -3747,12 +3776,10 @@ function BackofficeApp() {
         void loadNominaEmployees()
       }
       if (section === 'configuracion') {
-        loadAutomationRules()
-        void loadPendingFiles()
-        void loadTemplatesForTenant(true)
+        refreshConfigurationData()
       }
     },
-    [isConnected, loadAutomationRules, loadNominaEmployees, loadPendingFiles, loadTemplatesForTenant, refreshPendingFiles],
+    [isConnected, loadNominaEmployees, refreshConfigurationData, refreshPendingFiles],
   )
 
   useEffect(() => {
@@ -3779,12 +3806,49 @@ function BackofficeApp() {
   }, [activeSection, isConnected, refreshPendingFiles])
 
   useEffect(() => {
+    if (activeSection !== 'configuracion' || !isConnected) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      refreshConfigurationData()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [activeSection, isConnected, refreshConfigurationData])
+
+  useEffect(() => {
+    if (activeSection !== 'configuracion' || !isConnected) {
+      return
+    }
+
+    function refreshOnFocus() {
+      void loadPendingFiles()
+      void loadTemplatesForTenant(true)
+    }
+
+    function refreshOnVisibility() {
+      if (document.visibilityState === 'visible') {
+        refreshOnFocus()
+      }
+    }
+
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnVisibility)
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnVisibility)
+    }
+  }, [activeSection, isConnected, loadPendingFiles, loadTemplatesForTenant])
+
+  useEffect(() => {
     const documentActiveTemplates = templates.filter(
       (template) => template.is_active && resolveTemplateMode(template) === 'document',
     )
     const readyTemplates = documentActiveTemplates.filter((template) => template.rule_status === 'ready')
+    const shouldUseTemplateMode = !legacyProcessingFlowEnabled || processingMode === 'template'
     if (documentActiveTemplates.length === 0) {
-      if (processingMode === 'template') {
+      if (shouldUseTemplateMode) {
         setSelectedTemplateId('')
       }
       return
@@ -3792,7 +3856,7 @@ function BackofficeApp() {
     if (selectedTemplateId && readyTemplates.some((template) => template.template_id === selectedTemplateId)) {
       return
     }
-    if (processingMode === 'template') {
+    if (shouldUseTemplateMode) {
       setSelectedTemplateId(readyTemplates[0]?.template_id || '')
     }
   }, [processingMode, selectedTemplateId, templates])
@@ -3806,6 +3870,30 @@ function BackofficeApp() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [activeSection, isConnected, refreshPendingFiles])
+
+  useEffect(() => {
+    const availableIds = pendingFiles.map((file) => file.id)
+    const availableIdSet = new Set(availableIds)
+    setSelectedPendingFileIds((prev) => {
+      const filtered = prev.filter((fileId) => availableIdSet.has(fileId))
+      if (filtered.length > 0) {
+        return filtered
+      }
+      return availableIds
+    })
+  }, [pendingFiles])
+
+  useEffect(() => {
+    if (!pendingSelectAllRef.current) {
+      return
+    }
+    pendingSelectAllRef.current.indeterminate =
+      selectedPendingFileIds.length > 0 && selectedPendingFileIds.length < pendingFiles.length
+  }, [pendingFiles.length, selectedPendingFileIds.length])
+
+  useEffect(() => {
+    processItemsRef.current = processItems
+  }, [processItems])
 
   useEffect(() => {
     function onPopState() {
@@ -3830,9 +3918,10 @@ function BackofficeApp() {
   }
 
   function changeProcessingMode(nextMode: ProcessingMode) {
-    setProcessingMode(nextMode)
+    const resolvedMode = legacyProcessingFlowEnabled ? nextMode : 'template'
+    setProcessingMode(resolvedMode)
     setProcessError('')
-    if (nextMode === 'default') {
+    if (resolvedMode === 'default') {
       setSelectedTemplateId('')
       return
     }
@@ -3849,8 +3938,16 @@ function BackofficeApp() {
       setShowConnectRequiredModal(true)
       return
     }
+    if (selectedPendingFileIds.length === 0) {
+      setProcessError('Seleccioná al menos un archivo para procesar.')
+      return
+    }
+    if (!legacyProcessingFlowEnabled) {
+      setProcessingMode('template')
+    }
+    const nextProcessingMode = legacyProcessingFlowEnabled ? processingMode : 'template'
     if (
-      processingMode === 'template' &&
+      nextProcessingMode === 'template' &&
       (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId))
     ) {
       setSelectedTemplateId(readyProcessTemplates[0]?.template_id || '')
@@ -3866,12 +3963,19 @@ function BackofficeApp() {
       return
     }
 
-    if (processingMode === 'template' && !selectedTemplateId) {
+    if (selectedPendingFileIds.length === 0) {
+      setProcessError('Seleccioná al menos un archivo para procesar.')
+      return
+    }
+
+    const effectiveProcessingMode = legacyProcessingFlowEnabled ? processingMode : 'template'
+
+    if (effectiveProcessingMode === 'template' && !selectedTemplateId) {
       setProcessError('Selecciona una plantilla con regla lista para procesar.')
       return
     }
     if (
-      processingMode === 'template' &&
+      effectiveProcessingMode === 'template' &&
       !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId)
     ) {
       setProcessError('La plantilla seleccionada no tiene una regla de clasificacion valida.')
@@ -3880,8 +3984,9 @@ function BackofficeApp() {
 
     setProcessError('')
     const response = await ingestDrive(tenantId, {
-      processing_mode: processingMode,
-      template_id: processingMode === 'template' ? selectedTemplateId : null,
+      processing_mode: effectiveProcessingMode,
+      template_id: effectiveProcessingMode === 'template' ? selectedTemplateId : null,
+      file_ids: selectedPendingFileIds,
     })
 
     if (!response.ok || !response.data?.job_id) {
@@ -3895,22 +4000,9 @@ function BackofficeApp() {
       }
       return
     }
-
-    const now = Date.now()
-    const item: ProcessItem = {
-      id: `${response.data.job_id}-${now}`,
-      jobId: response.data.job_id,
-      name:
-        processingMode === 'template'
-          ? `Proceso plantilla ${new Date(now).toLocaleString()}`
-          : `Proceso ${new Date(now).toLocaleString()}`,
-      state: 'running',
-      detail: null,
-      createdAt: now,
-    }
-
-    setProcessItems((prev) => [item, ...prev])
     setShowProcessModeModal(false)
+    setProcessError('')
+    await loadProcessRuns()
   }
 
   function openInputFolder() {
@@ -3941,34 +4033,64 @@ function BackofficeApp() {
     anchor.remove()
   }
 
-  async function refreshProcess(item: ProcessItem) {
-    setRefreshingProcessId(item.id)
-    const response = await getJobStatus(item.jobId)
-    setRefreshingProcessId(null)
-
+  const loadProcessRuns = useCallback(async () => {
+    const response = await listProcessRuns(tenantId, 10)
     if (!response.ok || !response.data) {
-      setProcessError('No se pudo actualizar el estado del proceso.')
+      setProcessError((current) => current || 'No se pudo cargar el historial de procesos.')
       return
     }
 
-    const nextState = mapJobState(response.data.status, response.data)
-    const updatedItem: ProcessItem = {
-      ...item,
-      state: nextState,
-      detail: response.data,
+    const hadRunning = processItemsRef.current.some((item) => item.state === 'running')
+    const nextItems = response.data.items.map(mapProcessRunItem)
+    const hasRunning = nextItems.some((item) => item.state === 'running')
+    setProcessItems(nextItems)
+    setProcessError((current) => (current === 'No se pudo cargar el historial de procesos.' ? '' : current))
+    setSelectedProcess((current) => {
+      if (!current) {
+        return current
+      }
+      return nextItems.find((item) => item.id === current.id) || current
+    })
+    if (hadRunning && !hasRunning) {
+      void loadPendingFiles()
+    }
+  }, [loadPendingFiles, tenantId])
+
+  useEffect(() => {
+    if (activeSection !== 'procesar' || !isConnected) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void loadProcessRuns()
+    }, 0)
+    const interval = window.setInterval(() => {
+      void loadProcessRuns()
+    }, 5000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
+  }, [activeSection, isConnected, loadProcessRuns])
+
+  async function requestStopProcess(item: ProcessItem) {
+    setStoppingProcessId(item.id)
+    const response = await stopJob(item.jobId)
+    setStoppingProcessId(null)
+
+    if (!response.ok) {
+      setProcessError(response.error || 'No se pudo pausar el proceso.')
+      return
     }
 
-    setProcessItems((prev) => prev.map((entry) => (entry.id === updatedItem.id ? updatedItem : entry)))
-    setSelectedProcess((prev) => (prev && prev.id === updatedItem.id ? updatedItem : prev))
-
-    if (nextState !== 'running') {
-      loadPendingFiles()
-    }
+    setProcessPauseCandidate(null)
+    setProcessError('')
+    await loadProcessRuns()
+    await loadPendingFiles()
   }
 
   const latestTerminalProcess = useMemo(() => {
     return processItems
-      .filter((item) => item.state !== 'running')
+      .filter((item) => item.state === 'success' || item.state === 'error')
       .sort((a, b) => getProcessSortTimestamp(b) - getProcessSortTimestamp(a))[0] ?? null
   }, [processItems])
 
@@ -3976,6 +4098,9 @@ function BackofficeApp() {
 
   const processedCount = latestMetrics.success ?? 0
   const errorCount = latestMetrics.error ?? 0
+  const hasPendingFiles = pendingFiles.length > 0
+  const selectedPendingFileSet = useMemo(() => new Set(selectedPendingFileIds), [selectedPendingFileIds])
+  const allPendingFilesSelected = hasPendingFiles && selectedPendingFileIds.length === pendingFiles.length
   const processTemplates = useMemo(
     () => templates.filter((template) => template.is_active && resolveTemplateMode(template) === 'document'),
     [templates],
@@ -4459,7 +4584,7 @@ function BackofficeApp() {
         )}
 
         {activeSection === 'procesar' && isConnected && (
-          <main className="content process-content">
+          <main className="content process-content process-screen">
             <section className="section-page-header" aria-label="Encabezado de procesar">
               <h2>Procesar documentos</h2>
               <p>Gestiona archivos pendientes, ejecuta procesos y revisa resultados.</p>
@@ -4486,33 +4611,84 @@ function BackofficeApp() {
               <section className="pending-card" aria-label="Tabla de pendientes">
                 <div className="pending-header">
                   <h3>Pendientes de procesar</h3>
-                  <button
-                    type="button"
-                    className="refresh-files-btn"
-                    onClick={refreshPendingFiles}
-                    disabled={processLoading}
-                    aria-label="Actualizar archivos pendientes"
-                    title="Actualizar"
-                  >
-                    ↻
-                  </button>
+                  <div className="pending-header-actions">
+                    <span className="pending-selection-count">
+                      {selectedPendingFileIds.length}/{pendingFiles.length} seleccionados
+                    </span>
+                    <button
+                      type="button"
+                      className="refresh-files-btn"
+                      onClick={refreshPendingFiles}
+                      disabled={processLoading}
+                      aria-label="Actualizar archivos pendientes"
+                      title="Actualizar"
+                    >
+                      ↻
+                    </button>
+                    <button
+                      type="button"
+                      className="refresh-files-btn pending-folder-btn"
+                      onClick={openInputFolder}
+                      disabled={processLoading}
+                      aria-label="Abrir carpeta INPUT"
+                      title="Abrir carpeta INPUT"
+                    >
+                      <span translate="no" className="material-symbols-outlined notranslate" aria-hidden="true">
+                        folder_open
+                      </span>
+                    </button>
+                  </div>
                 </div>
                 <div className="pending-table-wrapper">
                   <table className="pending-table">
+                    <thead>
+                      <tr>
+                        <th className="pending-check-col">
+                          <input
+                            ref={pendingSelectAllRef}
+                            type="checkbox"
+                            checked={allPendingFilesSelected}
+                            onChange={(event) => {
+                              setProcessError('')
+                              setSelectedPendingFileIds(event.target.checked ? pendingFiles.map((file) => file.id) : [])
+                            }}
+                            disabled={pendingFiles.length === 0 || processLoading}
+                            aria-label="Seleccionar todos los archivos pendientes"
+                          />
+                        </th>
+                        <th>Archivo</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {processLoading && (
                         <tr>
-                          <td>Cargando archivos...</td>
+                          <td colSpan={2}>Cargando archivos...</td>
                         </tr>
                       )}
                       {!processLoading && pendingFiles.length === 0 && !processError && (
                         <tr>
-                          <td>Sin archivos PDF pendientes.</td>
+                          <td colSpan={2}>Sin archivos PDF pendientes.</td>
                         </tr>
                       )}
                       {!processLoading &&
                         pendingFiles.map((file) => (
-                          <tr key={file.id}>
+                          <tr key={file.id} className={selectedPendingFileSet.has(file.id) ? 'selected-row' : undefined}>
+                            <td className="pending-check-col">
+                              <input
+                                type="checkbox"
+                                checked={selectedPendingFileSet.has(file.id)}
+                                onChange={(event) => {
+                                  setProcessError('')
+                                  setSelectedPendingFileIds((prev) => {
+                                    if (event.target.checked) {
+                                      return prev.includes(file.id) ? prev : [...prev, file.id]
+                                    }
+                                    return prev.filter((currentId) => currentId !== file.id)
+                                  })
+                                }}
+                                aria-label={`Seleccionar ${file.name}`}
+                              />
+                            </td>
                             <td title={file.name}>{file.name}</td>
                           </tr>
                         ))}
@@ -4523,69 +4699,64 @@ function BackofficeApp() {
                   <button
                     type="button"
                     className="process-btn"
-                    onClick={openProcessModeSelector}
-                    disabled={processLoading || pendingFiles.length === 0}
+                    onClick={hasPendingFiles ? openProcessModeSelector : openInputFolder}
+                    disabled={processLoading || (hasPendingFiles && selectedPendingFileIds.length === 0)}
                   >
-                    Procesar
+                    {hasPendingFiles ? 'Procesar' : 'Agregar archivos'}
                   </button>
-                  <button
-                    type="button"
-                    className="add-files-btn"
-                    onClick={openInputFolder}
-                    disabled={processLoading}
-                  >
-                    Agregar archivos
-                  </button>
-                  </div>
+                </div>
                 </section>
 
               <section className="jobs-card" aria-label="Tabla de procesos">
-                <table className="jobs-table">
-                  <thead>
-                    <tr>
-                      <th>Procesos</th>
-                      <th>Estado</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {processItems.length === 0 && (
+                <div className="jobs-table-wrapper">
+                  <table className="jobs-table">
+                    <thead>
                       <tr>
-                        <td colSpan={3}>Sin procesos ejecutados todavía.</td>
+                        <th>Procesos</th>
+                        <th>Estado</th>
+                        <th></th>
                       </tr>
-                    )}
-                    {processItems.map((item) => (
-                      <tr key={item.id}>
-                        <td title={item.jobId}>{item.name}</td>
-                        <td>
-                          {item.state === 'running' && (
-                            <span className="status running">
-                              <span className="spinner" /> Ejecutando
+                    </thead>
+                    <tbody>
+                      {processItems.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="jobs-empty-state">
+                            Aun no hay historial de procesos ejecutados
+                          </td>
+                        </tr>
+                      )}
+                      {processItems.map((item) => (
+                        <tr key={item.id}>
+                          <td title={item.jobId}>{formatProcessName(item)}</td>
+                          <td>
+                            <span className={`status ${item.state === 'paused' ? 'paused' : item.state}`}>
+                              {item.state === 'running' && <span className="spinner" />}
+                              {item.state === 'success' && '✓ '}
+                              {item.state === 'error' && '✕ '}
+                              {getProcessStateLabel(item.state)}
                             </span>
-                          )}
-                          {item.state === 'success' && <span className="status success">✓ Exitoso</span>}
-                          {item.state === 'error' && <span className="status error">✕ Error</span>}
-                        </td>
-                        <td>
-                          {item.state === 'running' ? (
-                            <button
-                              type="button"
-                              className="link-btn"
-                              onClick={() => refreshProcess(item)}
-                              disabled={refreshingProcessId === item.id}
-                            >
-                              {refreshingProcessId === item.id ? 'Actualizando...' : 'Actualizar'}
-                            </button>
-                          ) : (
-                            <button type="button" className="link-btn" onClick={() => setSelectedProcess(item)}>
-                              Ver
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          </td>
+                          <td>
+                            {item.state === 'running' ? (
+                              <button
+                                type="button"
+                                className="link-btn link-btn-danger"
+                                onClick={() => setProcessPauseCandidate(item)}
+                                disabled={stoppingProcessId === item.id}
+                              >
+                                {stoppingProcessId === item.id ? 'Pausando...' : 'Pausar'}
+                              </button>
+                            ) : (
+                              <button type="button" className="link-btn" onClick={() => setSelectedProcess(item)}>
+                                Ver
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 {processError && <p className="oauth-feedback error">{processError}</p>}
               </section>
             </div>
@@ -4593,7 +4764,7 @@ function BackofficeApp() {
         )}
 
         {activeSection === 'configuracion' && isConnected && (
-          <main className="content process-content">
+          <main className="content process-content settings-screen">
             <section className="section-page-header" aria-label="Encabezado de configuracion">
               <h2>Configuracion</h2>
               <p>Administra plantillas, reglas y automatizacion.</p>
@@ -4845,7 +5016,7 @@ function BackofficeApp() {
         )}
 
         {activeSection === 'nomina' && isConnected && (
-          <main className="content process-content">
+          <main className="content process-content nomina-screen">
             <section className="section-page-header" aria-label="Encabezado de nomina">
               <h2>Nomina y colaboradores</h2>
               <p>Visualiza colaboradores y administra sus documentos por año.</p>
@@ -5269,23 +5440,25 @@ function BackofficeApp() {
       )}
 
       {showProcessModeModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegir modo de procesamiento">
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegí una plantilla para procesar tus archivos">
           <div className="modal-card process-mode-modal">
-            <h3>Elegir flujo de proceso</h3>
-            <p>Seleccioná cómo querés procesar los archivos pendientes.</p>
-            <div className="settings-field">
-              <label htmlFor="processing-mode-select-modal">Modo de procesamiento</label>
-              <select
-                id="processing-mode-select-modal"
-                className="year-select"
-                value={processingMode}
-                onChange={(event) => changeProcessingMode(event.target.value as ProcessingMode)}
-              >
-                <option value="default">Flujo actual</option>
-                <option value="template">Usar plantilla</option>
-              </select>
-            </div>
-            {processingMode === 'template' && (
+            <h3>Elegí una plantilla para procesar tus archivos</h3>
+            <p>Seleccioná la plantilla que se va a usar sobre los archivos marcados.</p>
+            {legacyProcessingFlowEnabled && (
+              <div className="settings-field">
+                <label htmlFor="processing-mode-select-modal">Modo de procesamiento</label>
+                <select
+                  id="processing-mode-select-modal"
+                  className="year-select"
+                  value={processingMode}
+                  onChange={(event) => changeProcessingMode(event.target.value as ProcessingMode)}
+                >
+                  <option value="default">Flujo actual</option>
+                  <option value="template">Usar plantilla</option>
+                </select>
+              </div>
+            )}
+            {(!legacyProcessingFlowEnabled || processingMode === 'template') && (
               <>
                 <div className="settings-field">
                   <label htmlFor="processing-template-select-modal">Plantilla</label>
@@ -5309,10 +5482,20 @@ function BackofficeApp() {
                     ))}
                   </select>
                 </div>
+                <div className="process-template-warning">
+                  <span className="process-template-warning-chip">
+                    <AlertTriangle className="h-4 w-4" />
+                    Advertencia
+                  </span>
+                  <p>
+                    Al procesar se realizan cambios en el nombre de los archivos y se clasificaran según la regla de
+                    establecida para la plantilla seleccionada.
+                  </p>
+                </div>
                 {readyProcessTemplates.length === 0 ? (
                   <p className="settings-preview">No hay plantillas listas. Completá una regla de clasificacion en Configuracion.</p>
                 ) : (
-                  <p className="settings-preview">Este modo usa una plantilla ABM con su regla de clasificacion asociada.</p>
+                  <p className="settings-preview">{selectedPendingFileIds.length} archivos seleccionados para procesar.</p>
                 )}
               </>
             )}
@@ -5326,8 +5509,9 @@ function BackofficeApp() {
                 className="modal-primary"
                 onClick={() => void triggerProcess()}
                 disabled={
-                  processingMode === 'template' &&
-                  (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId))
+                  selectedPendingFileIds.length === 0 ||
+                  ((!legacyProcessingFlowEnabled || processingMode === 'template') &&
+                    (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId)))
                 }
               >
                 Procesar
@@ -5980,24 +6164,61 @@ function BackofficeApp() {
         </div>
       )}
 
+      {processPauseCandidate && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar pausa del proceso">
+          <div className="modal-card">
+            <h3>Confirmar pausa</h3>
+            <p>Se va a pausar el proceso seleccionado. Esta accion detiene la ejecucion actual.</p>
+            <p>
+              <strong>{formatProcessName(processPauseCandidate)}</strong>
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => setProcessPauseCandidate(null)}
+                disabled={stoppingProcessId === processPauseCandidate.id}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={() => void requestStopProcess(processPauseCandidate)}
+                disabled={stoppingProcessId === processPauseCandidate.id}
+              >
+                {stoppingProcessId === processPauseCandidate.id ? 'Pausando...' : 'Confirmar pausa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedProcess && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Detalle del proceso">
           <div className="modal-card process-detail-modal">
             <h3>Detalle del proceso</h3>
-            <p><strong>Job ID:</strong> {selectedProcess.jobId}</p>
-            <p><strong>Estado final:</strong> {selectedProcess.state === 'success' ? 'Exitoso' : 'Error'}</p>
-            <p><strong>Estado backend:</strong> {selectedProcess.detail?.status || 'N/D'}</p>
+            <p><strong>Proceso:</strong> {formatProcessName(selectedProcess)}</p>
+            <p>
+              <strong>Estado:</strong>{' '}
+              <span className={`status process-detail-status ${selectedProcess.state}`}>
+                {selectedProcess.state === 'running' && <span className="spinner" />}
+                {selectedProcess.state === 'success' && '✓ '}
+                {selectedProcess.state === 'error' && '✕ '}
+                {getProcessStateLabel(selectedProcess.state)}
+              </span>
+            </p>
             <p><strong>Duración:</strong> {formatDuration(selectedProcess.detail?.duration_seconds)}</p>
-            <p><strong>Procesados (total):</strong> {extractRunMetrics(selectedProcess.detail).totalProcessed ?? 'N/D'}</p>
+            <p><strong>Total procesados:</strong> {extractRunMetrics(selectedProcess.detail).totalProcessed ?? 'N/D'}</p>
             <p><strong>Exitosos:</strong> {extractRunMetrics(selectedProcess.detail).success ?? 'N/D'}</p>
             <p><strong>Errores:</strong> {extractRunMetrics(selectedProcess.detail).error ?? 'N/D'}</p>
-            <p><strong>Estado del flujo:</strong> {extractRunMetrics(selectedProcess.detail).flowStatus ?? 'N/D'}</p>
-            <p><strong>Mensaje:</strong> {extractRunMetrics(selectedProcess.detail).message ?? 'N/D'}</p>
-            <p><strong>Log:</strong> {extractRunMetrics(selectedProcess.detail).logPath ?? 'N/D'}</p>
-            <p><strong>Creado:</strong> {formatDateTime(selectedProcess.detail?.created_at)}</p>
-            <p><strong>En cola:</strong> {formatDateTime(selectedProcess.detail?.enqueued_at)}</p>
-            <p><strong>Inicio:</strong> {formatDateTime(selectedProcess.detail?.started_at)}</p>
-            <p><strong>Fin:</strong> {formatDateTime(selectedProcess.detail?.ended_at)}</p>
+            <p>
+              <strong>Mensaje:</strong>{' '}
+              {selectedProcess.state === 'paused'
+                ? 'Proceso pausado por el usuario'
+                : extractRunMetrics(selectedProcess.detail).message ?? 'N/D'}
+            </p>
+            <p><strong>Creado:</strong> {formatDateTime(selectedProcess.createdAtIso || selectedProcess.detail?.created_at)}</p>
             <div className="modal-actions">
               <button type="button" className="modal-primary" onClick={() => setSelectedProcess(null)}>
                 Cerrar

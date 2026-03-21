@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     drive_supports_all_drives: bool = True
     drive_include_items_from_all_drives: bool = True
     drive_page_size: int = 1000
+    enable_legacy_processing_flow: bool = False
 
     poll_interval_seconds: int = 60
 

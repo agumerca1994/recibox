@@ -9,6 +9,7 @@ from app.services.templates.store import (
 )
 from app.services.templates.classification_rules import init_classification_rules_schema
 from app.services.templates.field_transforms import init_template_field_transforms_schema
+from app.services.process_runs import init_process_runs_schema
 from app.services.tenants.user_tenants import init_user_tenants_schema
 from app.services.tenants.user_profiles import init_user_profiles_schema
 
@@ -27,6 +28,7 @@ def startup_events():
         init_document_templates_schema()
         init_classification_rules_schema()
         init_template_field_transforms_schema()
+        init_process_runs_schema()
         deleted = delete_legacy_templates_by_name(
             template_names=["Recibo de sueldo mensual"],
         )

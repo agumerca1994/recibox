@@ -474,9 +474,9 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 14px 22px;
+  padding: 10px 18px;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   background: #f4f7fb;
   overflow: hidden;
 }
@@ -487,23 +487,66 @@ body {
   align-items: stretch;
 }
 
+.process-screen,
+.settings-screen,
+.nomina-screen {
+  padding: 6px 14px;
+  gap: 6px;
+  min-height: 0;
+}
+
+.process-screen .section-page-header,
+.settings-screen .section-page-header,
+.nomina-screen .section-page-header {
+  padding: 4px 0 2px;
+}
+
+.process-screen .section-page-header h2,
+.nomina-screen .section-page-header h2 {
+  font-size: 20px;
+}
+
+.process-screen .section-page-header p,
+.nomina-screen .section-page-header p {
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.nomina-screen .section-page-header h2 {
+  font-size: 18px;
+}
+
+.nomina-screen .section-page-header p {
+  margin-top: 1px;
+  font-size: 10px;
+}
+
+.settings-screen .section-page-header h2 {
+  font-size: 18px;
+}
+
+.settings-screen .section-page-header p {
+  margin-top: 1px;
+  font-size: 10px;
+}
+
 .section-page-header {
   width: 100%;
-  margin-bottom: 2px;
-  padding: 10px 0 8px;
+  margin-bottom: 0;
+  padding: 6px 0 4px;
 }
 
 .section-page-header h2 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #172033;
 }
 
 .section-page-header p {
-  margin: 6px 0 0;
-  font-size: 14px;
+  margin: 4px 0 0;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--rb-text-faint);
 }
@@ -1106,14 +1149,24 @@ body {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+}
+
+.process-screen .process-stack {
+  gap: 6px;
 }
 
 .process-summary {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 12px;
+  gap: 10px;
+}
+
+.process-screen .process-summary {
+  gap: 6px;
 }
 
 .process-layout {
@@ -1130,35 +1183,76 @@ body {
   gap: 12px;
 }
 
+.nomina-screen .nomina-grid {
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+}
+
 .nomina-left-col {
   display: grid;
   gap: 16px;
 }
 
+.nomina-screen .nomina-left-col {
+  min-height: 0;
+  gap: 8px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .summary-card {
   width: 100%;
-  padding: 14px 16px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+
+.process-screen .summary-card {
+  padding: 8px 10px;
+  min-height: 78px;
+}
+
+.nomina-screen .summary-card {
+  padding: 8px 10px;
+  min-height: 78px;
 }
 
 .summary-card p {
   margin: 0;
   color: var(--rb-text-faint);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 700;
 }
 
 .summary-card strong {
-  font-size: clamp(28px, 3.3vw, 36px);
+  font-size: clamp(24px, 2.6vw, 30px);
   line-height: 1;
 }
 
+.process-screen .summary-card strong {
+  font-size: clamp(18px, 1.8vw, 22px);
+}
+
+.nomina-screen .summary-card strong {
+  font-size: clamp(18px, 1.8vw, 22px);
+}
+
+.process-screen .summary-card p,
+.process-screen .summary-card span {
+  font-size: 10px;
+}
+
+.nomina-screen .summary-card p,
+.nomina-screen .summary-card span {
+  font-size: 10px;
+}
+
 .summary-card span {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--rb-text-faint);
   font-weight: 700;
 }
@@ -1167,6 +1261,23 @@ body {
 .jobs-card {
   width: 100%;
   overflow: hidden;
+  min-height: 300px;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.process-screen .pending-card,
+.process-screen .jobs-card {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+}
+
+.nomina-screen .pending-card,
+.nomina-screen .jobs-card {
+  min-height: 0;
+  max-height: none;
 }
 
 .pending-card {
@@ -1177,7 +1288,6 @@ body {
 .jobs-card {
   grid-column: 2 / 4;
   grid-row: 2 / 3;
-  min-height: 240px;
 }
 
 .process-stack .pending-card,
@@ -1197,26 +1307,82 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--rb-border);
   background: #edf2f8;
 }
 
+.process-screen .pending-header {
+  padding: 6px 8px;
+  gap: 8px;
+}
+
+.nomina-screen .pending-header {
+  padding: 6px 8px;
+  gap: 8px;
+}
+
 .pending-card h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
+}
+
+.process-screen .pending-card h3,
+.process-screen .jobs-card h3 {
+  font-size: 13px;
+}
+
+.nomina-screen .pending-card h3,
+.nomina-screen .jobs-card h3 {
+  font-size: 13px;
+}
+
+.pending-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pending-selection-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rb-text-faint);
+  white-space: nowrap;
+}
+
+.process-screen .pending-selection-count {
+  font-size: 9px;
 }
 
 .refresh-files-btn {
-  width: 34px;
-  height: 34px;
-  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
+.process-screen .refresh-files-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.process-screen .pending-folder-btn .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.pending-folder-btn .material-symbols-outlined {
+  font-size: 20px;
+  line-height: 1;
+}
+
 .pending-table-wrapper {
-  max-height: 430px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1224,6 +1390,16 @@ body {
 .jobs-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.jobs-table {
+  table-layout: fixed;
+}
+
+.jobs-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .files-table {
@@ -1238,9 +1414,23 @@ body {
 .pending-table td,
 .jobs-table th,
 .jobs-table td {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--rb-border);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.process-screen .pending-table th,
+.process-screen .pending-table td,
+.process-screen .jobs-table th,
+.process-screen .jobs-table td {
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+.nomina-screen .pending-table th,
+.nomina-screen .pending-table td {
+  padding: 6px 8px;
+  font-size: 10px;
 }
 
 .pending-table th,
@@ -1249,6 +1439,32 @@ body {
   font-weight: 700;
   text-align: left;
   color: var(--rb-text-soft);
+}
+
+.pending-check-col {
+  width: 52px;
+  text-align: center !important;
+}
+
+.process-screen .pending-check-col {
+  width: 44px;
+}
+
+.pending-check-col input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.process-screen .pending-check-col input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+}
+
+.pending-check-col input[type='checkbox']:disabled {
+  cursor: not-allowed;
 }
 
 .pending-table td {
@@ -1321,12 +1537,23 @@ body {
   background: #eef2f7;
 }
 
+.nomina-screen .collaborator-toolbar {
+  gap: 6px;
+  padding: 8px;
+}
+
 .collaborator-search,
 .settings-input {
   width: 100%;
   min-height: 38px;
   padding: 0 12px;
   font-size: 14px;
+}
+
+.nomina-screen .collaborator-search {
+  min-height: 32px;
+  padding-left: 42px;
+  font-size: 12px;
 }
 
 .collaborator-search-wrap {
@@ -1346,6 +1573,11 @@ body {
   pointer-events: none;
 }
 
+.nomina-screen .collaborator-search-icon {
+  left: 10px;
+  font-size: 16px;
+}
+
 .collaborator-search {
   padding-left: 48px;
   border-radius: 8px;
@@ -1355,6 +1587,10 @@ body {
 
 .collaborator-search-wrap .collaborator-search {
   padding-left: 56px !important;
+}
+
+.nomina-screen .collaborator-search-wrap .collaborator-search {
+  padding-left: 38px !important;
 }
 
 .collaborator-search:focus {
@@ -1372,12 +1608,22 @@ body {
   cursor: pointer;
 }
 
+.nomina-screen .sort-btn {
+  min-width: 52px;
+  height: 32px;
+  font-size: 11px;
+}
+
 .process-cta-row {
-  padding: 12px;
+  padding: 10px;
   display: flex;
   justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.process-screen .process-cta-row {
+  padding: 6px;
 }
 
 .template-process-controls {
@@ -1388,9 +1634,15 @@ body {
 }
 
 .process-btn {
-  height: 40px;
-  padding: 0 18px;
-  font-size: 14px;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.process-screen .process-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 11px;
 }
 
 .add-files-btn {
@@ -1407,10 +1659,18 @@ body {
   gap: 8px;
 }
 
+.nomina-screen .year-filter {
+  gap: 6px;
+}
+
 .year-filter span {
   font-size: 13px;
   color: var(--rb-text-soft);
   font-weight: 700;
+}
+
+.nomina-screen .year-filter span {
+  font-size: 11px;
 }
 
 .year-select {
@@ -1421,14 +1681,70 @@ body {
   font-weight: 600;
 }
 
+.nomina-screen .year-select {
+  min-width: 96px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.nomina-screen .doc-action-text-btn,
+.nomina-screen .link-btn {
+  font-size: 11px;
+}
+
+.nomina-screen .process-cta-row {
+  padding: 8px;
+}
+
+.nomina-screen .add-files-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
 .jobs-table td:last-child {
   text-align: right;
+}
+
+.jobs-table th:first-child,
+.jobs-table td:first-child {
+  width: auto;
+}
+
+.jobs-table th:nth-child(2),
+.jobs-table td:nth-child(2) {
+  width: 170px;
+  text-align: center;
+}
+
+.jobs-table th:nth-child(3),
+.jobs-table td:nth-child(3) {
+  width: 88px;
+}
+
+.jobs-table td.jobs-empty-state,
+.jobs-table td.jobs-empty-state:last-child {
+  height: 250px;
+  text-align: center;
+  vertical-align: middle;
+  color: var(--rb-text-faint);
+  font-weight: 600;
+}
+
+.process-screen .jobs-table td.jobs-empty-state,
+.process-screen .jobs-table td.jobs-empty-state:last-child {
+  height: 146px;
 }
 
 .status {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
   font-weight: 700;
 }
 
@@ -1444,9 +1760,14 @@ body {
   color: var(--rb-text-soft);
 }
 
+.status.paused {
+  color: #c2410c;
+}
+
 .spinner {
   width: 14px;
   height: 14px;
+  flex: 0 0 14px;
   border: 2px solid #cbd5e1;
   border-top-color: #0f172a;
   border-radius: 999px;
@@ -1481,11 +1802,30 @@ body {
   overflow: hidden;
 }
 
+.settings-screen .settings-layout {
+  min-height: 0;
+  height: min(62vh, calc(100vh - 214px));
+  max-height: min(62vh, calc(100vh - 214px));
+}
+
+.settings-screen .settings-cards-grid {
+  height: 100%;
+  min-height: 0;
+}
+
+.settings-screen .settings-card {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+}
+
 .settings-cards-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -1505,10 +1845,10 @@ body {
 }
 
 .settings-body {
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -1516,10 +1856,19 @@ body {
   scrollbar-color: #c7d2e3 transparent;
 }
 
+.settings-screen .settings-body {
+  padding: 9px;
+  gap: 6px;
+}
+
 .settings-body h4 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.25;
+}
+
+.settings-screen .settings-body h4 {
+  font-size: 13px;
 }
 
 .settings-card-header {
@@ -1582,9 +1931,56 @@ body {
 
 .settings-preview {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--rb-text-soft);
+}
+
+.settings-screen .settings-preview {
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.settings-screen .settings-chip {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+.settings-screen .settings-field {
+  gap: 5px;
+}
+
+.settings-screen .settings-field label {
+  font-size: 11px;
+}
+
+.settings-screen .year-select,
+.settings-screen .settings-input {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.settings-screen .settings-actions {
+  margin-top: 4px;
+  gap: 6px;
+}
+
+.settings-screen .modal-primary,
+.settings-screen .modal-secondary {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 11px;
+}
+
+.settings-screen .settings-radio-row {
+  gap: 12px;
+}
+
+.settings-screen .settings-radio-option {
+  font-size: 11px;
 }
 
 .settings-divider {
@@ -1636,11 +2032,51 @@ body {
 .template-saved-list {
   display: grid;
   gap: 12px;
-  max-height: 248px;
+  max-height: min(46vh, 320px);
   overflow-y: auto;
   padding-right: 6px;
   scrollbar-width: thin;
   scrollbar-color: #c7d2e3 transparent;
+}
+
+.settings-screen .template-saved-list {
+  flex: 1;
+  min-height: 0;
+  max-height: min(34vh, 250px);
+  padding-right: 4px;
+  align-content: start;
+}
+
+.settings-screen .template-saved-item {
+  padding: 6px 10px;
+  border-radius: 12px;
+  min-height: 0;
+  gap: 10px;
+}
+
+.settings-screen .template-saved-item strong {
+  font-size: 13px;
+}
+
+.settings-screen .template-saved-item span {
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.settings-screen .template-saved-main {
+  gap: 1px;
+}
+
+.settings-screen .template-list-menu-trigger {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+}
+
+.settings-screen .oauth-feedback {
+  margin-top: 2px;
+  font-size: 12px;
 }
 
 .template-saved-list::-webkit-scrollbar,
@@ -2751,8 +3187,60 @@ body {
   width: min(760px, 100%);
 }
 
+.process-detail-status {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
 .process-mode-modal {
   width: min(640px, 100%);
+}
+
+.process-mode-modal h3 {
+  margin-bottom: 6px;
+}
+
+.process-mode-modal > p:first-of-type {
+  margin-bottom: 16px;
+}
+
+.process-template-warning {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: var(--rb-radius-md);
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+}
+
+.process-template-warning-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ffedd5;
+  color: #c2410c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.process-template-warning-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.process-template-warning p {
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .process-detail-modal pre {
@@ -3192,6 +3680,8 @@ body {
 
   .settings-cards-grid {
     grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    height: auto;
   }
 
   .settings-card-half,
@@ -3475,8 +3965,13 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .settings-cards-grid {
+    grid-auto-rows: auto;
+    height: auto;
+  }
+
   .summary-card strong {
-    font-size: 34px;
+    font-size: 28px;
   }
 
   .pending-table th,

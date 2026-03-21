@@ -8,12 +8,14 @@ import type {
   JobStatusResponse,
   OAuthStatusResponse,
   OAuthUnlinkResponse,
+  ProcessRunListResponse,
   PickerFoldersResponse,
   ProcessingPreferences,
   ReciboxStructureCheckResponse,
   ReciboxStructureCreateResponse,
   RegisterAccountPayload,
   RegisterAccountResponse,
+  StopJobResponse,
   TenantDriveConfig,
   TemplateFieldTransformGroup,
   TemplateClassificationRuleResponse,
@@ -85,6 +87,16 @@ export function ingestDrive(tenantId: string, payload?: IngestDrivePayload) {
 
 export function getJobStatus(jobId: string) {
   return apiRequest<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function listProcessRuns(tenantId: string, limit = 10) {
+  return apiRequest<ProcessRunListResponse>(`/process-runs?${queryTenant(tenantId)}&limit=${encodeURIComponent(String(limit))}`)
+}
+
+export function stopJob(jobId: string) {
+  return apiRequest<StopJobResponse>(`/jobs/${encodeURIComponent(jobId)}/stop`, {
+    method: 'POST',
+  })
 }
 
 export function getGoogleOAuthStatus(tenantId: string) {

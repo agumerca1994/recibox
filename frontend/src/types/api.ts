@@ -71,6 +71,7 @@ export type ProcessingPreferences = {
 export type IngestDrivePayload = {
   processing_mode?: 'default' | 'template'
   template_id?: string | null
+  file_ids?: string[]
 }
 
 export type JobQueuedResponse = {
@@ -80,17 +81,55 @@ export type JobQueuedResponse = {
   drive_config_source?: string
   processing_mode?: 'default' | 'template'
   template_id?: string | null
+  file_ids_count?: number
 }
 
 export type JobStatusResponse = {
   job_id: string
   status: string
   result: unknown
+  progress?: {
+    processed?: number | null
+    ok?: number | null
+    error?: number | null
+    status?: string | null
+    message?: string | null
+  } | null
   created_at?: string | null
   enqueued_at?: string | null
   started_at?: string | null
   ended_at?: string | null
   duration_seconds?: number | null
+}
+
+export type ProcessRunState = 'running' | 'success' | 'error' | 'paused'
+
+export type ProcessRunRecord = {
+  id: string
+  job_id: string
+  tenant_id: string
+  processing_mode: 'default' | 'template'
+  template_id?: string | null
+  template_name?: string | null
+  file_ids_count?: number
+  name: string
+  state: ProcessRunState
+  detail: JobStatusResponse | null
+  created_at?: string | null
+  updated_at?: string | null
+  paused_at?: string | null
+}
+
+export type ProcessRunListResponse = {
+  count: number
+  items: ProcessRunRecord[]
+}
+
+export type StopJobResponse = {
+  status: string
+  job_id: string
+  tenant_id: string
+  process_run?: ProcessRunRecord | null
 }
 
 export type OAuthStatusResponse = {

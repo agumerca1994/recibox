@@ -10,6 +10,13 @@ from rq.job import Job
 from app.queue import get_queue, get_redis
 from app.core.config import settings
 from app.workers.flow_job import run_flow
+from app.services.process_runs import (
+    list_recent_process_runs,
+    mark_process_run_paused,
+    serialize_job_status,
+    serialize_process_run,
+    upsert_process_run,
+)
 from app.services.templates.builder import build_template_draft_for_file
 from app.services.templates.processor import run_template_flow
 from app.services.templates.store import (
@@ -117,6 +124,7 @@ class ProcessingPreferencesPayload(BaseModel):
 class IngestDrivePayload(BaseModel):
     processing_mode: str = "default"
     template_id: str | None = None
+    file_ids: list[str] | None = None
 
 
 class TemplateDraftFromFilePayload(BaseModel):
@@ -671,12 +679,24 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
     effective_payload = payload or IngestDrivePayload()
     processing_mode = (effective_payload.processing_mode or "default").strip().lower()
     template_id = (effective_payload.template_id or "").strip() or None
+    selected_file_ids = [
+        str(file_id or "").strip()
+        for file_id in (effective_payload.file_ids or [])
+        if str(file_id or "").strip()
+    ]
+
+    if processing_mode not in {"default", "template"}:
+        raise HTTPException(status_code=400, detail="Unsupported processing mode")
+    if processing_mode == "default" and not settings.enable_legacy_processing_flow:
+        raise HTTPException(status_code=400, detail="Legacy processing flow is disabled")
 
     # Prevent concurrent runs for same tenant.
     if not redis_conn.set(lock_key, "1", nx=True, ex=60 * 60):
         raise HTTPException(status_code=409, detail="Processing already running for tenant")
 
     q = get_queue()
+    template_name: str | None = None
+    process_name = "Proceso flujo actual"
     if processing_mode == "template":
         if not template_id:
             redis_conn.delete(lock_key)
@@ -696,6 +716,8 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
             redis_conn.delete(lock_key)
             raise HTTPException(status_code=400, detail="Template is not compatible with document mode")
 
+        template_name = template.name
+        process_name = f"Proceso {template.name}"
         rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
         rule_status, _, _ = _resolve_template_rule_metadata(template, rule)
         if rule_status != "ready":
@@ -707,6 +729,7 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
             run_template_flow,
             tenant_id=tenant_id,
             template_id=template_id,
+            file_ids=selected_file_ids or None,
             job_timeout=settings.rq_job_timeout_seconds,
         )
     else:
@@ -715,7 +738,34 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
     job.meta["processing_mode"] = processing_mode
     if template_id:
         job.meta["template_id"] = template_id
+    if template_name:
+        job.meta["template_name"] = template_name
+    job.meta["process_name"] = process_name
+    if selected_file_ids:
+        job.meta["file_ids_count"] = len(selected_file_ids)
+    job.meta["progress"] = {
+        "processed": 0,
+        "ok": 0,
+        "error": 0,
+        "status": "running",
+        "message": "Proceso en curso",
+    }
     job.save_meta()
+    if settings.postgres_url:
+        try:
+            upsert_process_run(
+                job_id=job.id,
+                tenant_id=tenant_id,
+                processing_mode=processing_mode,
+                template_id=template_id,
+                template_name=template_name,
+                file_ids_count=len(selected_file_ids),
+                name=process_name,
+                status="running",
+                detail=serialize_job_status(job),
+            )
+        except Exception:
+            pass
     return {
         "status": "queued",
         "job_id": job.id,
@@ -723,6 +773,7 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
         "drive_config_source": cfg.source,
         "processing_mode": processing_mode,
         "template_id": template_id,
+        "file_ids_count": len(selected_file_ids),
     }
 
 
@@ -732,26 +783,15 @@ async def get_job(job_id: str):
         job = Job.fetch(job_id, connection=get_redis())
     except Exception:
         raise HTTPException(status_code=404, detail="Job not found")
+    return serialize_job_status(job)
 
-    duration_seconds = None
-    if job.started_at:
-        end = job.ended_at or None
-        if end:
-            duration_seconds = (end - job.started_at).total_seconds()
-        else:
-            duration_seconds = (job.last_heartbeat or job.started_at)
-            duration_seconds = (duration_seconds - job.started_at).total_seconds()
 
-    return {
-        "job_id": job.id,
-        "status": job.get_status(),
-        "result": job.result,
-        "created_at": job.created_at,
-        "enqueued_at": job.enqueued_at,
-        "started_at": job.started_at,
-        "ended_at": job.ended_at,
-        "duration_seconds": duration_seconds,
-    }
+@router.get("/process-runs")
+async def get_process_runs(tenant_id: str = Query("default"), limit: int = Query(10, ge=1, le=10)):
+    if not settings.postgres_url:
+        return {"count": 0, "items": []}
+    items = [serialize_process_run(record) for record in list_recent_process_runs(tenant_id, limit=limit)]
+    return {"count": len(items), "items": items}
 
 
 @router.post("/jobs/{job_id}/stop")
@@ -780,7 +820,19 @@ async def stop_job(job_id: str):
     except Exception:
         pass
 
-    return {"status": "stop_requested", "job_id": job_id, "tenant_id": tenant_id}
+    process_run = None
+    if settings.postgres_url:
+        try:
+            process_run = mark_process_run_paused(job_id, detail=serialize_job_status(job))
+        except Exception:
+            process_run = None
+
+    return {
+        "status": "stop_requested",
+        "job_id": job_id,
+        "tenant_id": tenant_id,
+        "process_run": serialize_process_run(process_run) if process_run else None,
+    }
 
 @router.post("/process/{file_id}")
 async def process_file(file_id: str):

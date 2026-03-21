@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pdfplumber
+from rq import get_current_job
 
 from app.core.config import settings
 from app.queue import get_redis
@@ -26,6 +27,33 @@ from app.services.templates.field_transforms import (
 )
 from app.services.templates.store import get_document_template, resolve_template_mode
 from app.services.tenants.drive_config import resolve_tenant_drive_config
+
+
+def _update_current_job_progress(
+    *,
+    processed: int,
+    ok: int,
+    error: int,
+    status: str,
+    message: str,
+) -> None:
+    try:
+        job = get_current_job()
+    except Exception:
+        job = None
+    if job is None:
+        return
+    try:
+        job.meta["progress"] = {
+            "processed": max(int(processed or 0), 0),
+            "ok": max(int(ok or 0), 0),
+            "error": max(int(error or 0), 0),
+            "status": str(status or "").strip() or "running",
+            "message": str(message or "").strip() or None,
+        }
+        job.save_meta()
+    except Exception:
+        return
 
 
 def _clamp_unit(value: object) -> float:
@@ -616,7 +644,46 @@ def _process_one_template_document(
     )
 
 
-def run_template_flow(*, tenant_id: str, template_id: str, limit: int = 50) -> dict:
+def _resolve_template_flow_files(
+    *,
+    tenant_id: str,
+    input_folder_id: str,
+    selected_file_ids: list[str] | None,
+) -> list[dict]:
+    if not selected_file_ids:
+        return list(
+            gdrive.list_files_in_folder(
+                input_folder_id,
+                query_extra="mimeType = 'application/pdf'",
+                tenant_id=tenant_id,
+            )
+        )
+
+    selected_files: list[dict] = []
+    seen_ids: set[str] = set()
+    for raw_file_id in selected_file_ids:
+        file_id = str(raw_file_id or "").strip()
+        if not file_id or file_id in seen_ids:
+            continue
+        seen_ids.add(file_id)
+        try:
+            file_meta = gdrive.get_file_metadata(
+                file_id,
+                tenant_id=tenant_id,
+                fields="id, name, mimeType, parents, createdTime, modifiedTime",
+            )
+        except Exception:
+            continue
+
+        parents = file_meta.get("parents") or []
+        if file_meta.get("mimeType") != "application/pdf" or input_folder_id not in parents:
+            continue
+        selected_files.append(file_meta)
+
+    return selected_files
+
+
+def run_template_flow(*, tenant_id: str, template_id: str, file_ids: list[str] | None = None, limit: int = 50) -> dict:
     lock_key = f"recibox:lock:{tenant_id}"
     redis_conn = get_redis()
 
@@ -649,12 +716,10 @@ def run_template_flow(*, tenant_id: str, template_id: str, limit: int = 50) -> d
         return {"status": "error", "message": f"Template config failed: {exc}"}
 
     try:
-        files = list(
-            gdrive.list_files_in_folder(
-                cfg.drive_input_folder_id,
-                query_extra="mimeType = 'application/pdf'",
-                tenant_id=tenant_id,
-            )
+        files = _resolve_template_flow_files(
+            tenant_id=tenant_id,
+            input_folder_id=cfg.drive_input_folder_id,
+            selected_file_ids=file_ids,
         )
     except Exception as exc:
         return {"status": "error", "message": f"List failed: {exc}"}
@@ -666,8 +731,9 @@ def run_template_flow(*, tenant_id: str, template_id: str, limit: int = 50) -> d
         total = min(len(files), limit)
         ok = 0
         err = 0
+        _update_current_job_progress(processed=0, ok=0, error=0, status="running", message="Proceso en curso")
         shared_child_name_cache: dict[tuple[str, str], list[str]] = {}
-        for file_meta in files[:total]:
+        for index, file_meta in enumerate(files[:total], start=1):
             result = _process_one_template_document(
                 file_meta,
                 tenant_id=tenant_id,
@@ -683,15 +749,32 @@ def run_template_flow(*, tenant_id: str, template_id: str, limit: int = 50) -> d
                 ok += 1
             else:
                 err += 1
+            _update_current_job_progress(
+                processed=index,
+                ok=ok,
+                error=err,
+                status="running",
+                message=result.message or "Proceso en curso",
+            )
+
+        final_status = "ok" if err == 0 else "partial"
+        _update_current_job_progress(
+            processed=total,
+            ok=ok,
+            error=err,
+            status=final_status,
+            message="Proceso finalizado" if err == 0 else "Proceso finalizado con errores",
+        )
 
         return {
-            "status": "ok" if err == 0 else "partial",
+            "status": final_status,
             "processed": total,
             "ok": ok,
             "error": err,
             "log": settings.results_log_path,
             "template_id": template_id,
             "rule_id": rule.rule_id,
+            "file_ids_count": len(file_ids or []),
         }
     finally:
         try:
