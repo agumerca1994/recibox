@@ -18,6 +18,7 @@ from app.services.templates.field_transforms import (
 VALID_TEMPLATE_TARGETS = {"ignore", "employee_folder", "year_folder", "filename"}
 VALID_DOCUMENT_FIELD_TYPES = {"string", "number", "date", "array"}
 VALID_TEMPLATE_MODES = {"processing", "document"}
+_UNSET = object()
 
 
 @dataclass
@@ -25,11 +26,13 @@ class DocumentTemplate:
     template_id: str
     tenant_id: str
     name: str
+    group_id: str | None
     description: str | None
     is_active: bool
     original_model: dict
     custom_model: dict
     sample_file_metadata: dict | None
+    drive_folder_id: str | None
     field_transforms: list[dict]
     created_at: datetime
     updated_at: datetime
@@ -44,11 +47,13 @@ def init_document_templates_schema() -> None:
                   template_id TEXT PRIMARY KEY,
                   tenant_id TEXT NOT NULL,
                   name TEXT NOT NULL,
+                  group_id TEXT NULL,
                   description TEXT NULL,
                   is_active BOOLEAN NOT NULL DEFAULT TRUE,
                   original_model JSONB NOT NULL,
                   custom_model JSONB NOT NULL,
                   sample_file_metadata JSONB NULL,
+                  drive_folder_id TEXT NULL,
                   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -65,6 +70,12 @@ def init_document_templates_schema() -> None:
                 CREATE INDEX IF NOT EXISTS idx_document_templates_tenant_lower_updated
                 ON document_templates ((LOWER(tenant_id)), updated_at DESC)
                 """
+            )
+            cur.execute(
+                "ALTER TABLE document_templates ADD COLUMN IF NOT EXISTS drive_folder_id TEXT NULL"
+            )
+            cur.execute(
+                "ALTER TABLE document_templates ADD COLUMN IF NOT EXISTS group_id TEXT NULL"
             )
         conn.commit()
 
@@ -303,14 +314,16 @@ def _row_to_template(row) -> DocumentTemplate:
         template_id=row[0],
         tenant_id=row[1],
         name=row[2],
-        description=row[3],
-        is_active=row[4],
-        original_model=row[5],
-        custom_model=row[6],
-        sample_file_metadata=row[7],
+        group_id=row[3],
+        description=row[4],
+        is_active=row[5],
+        original_model=row[6],
+        custom_model=row[7],
+        sample_file_metadata=row[8],
+        drive_folder_id=row[9],
         field_transforms=[],
-        created_at=row[8],
-        updated_at=row[9],
+        created_at=row[10],
+        updated_at=row[11],
     )
 
 
@@ -330,8 +343,8 @@ def _attach_field_transforms(templates: list[DocumentTemplate]) -> list[Document
 def list_document_templates(*, tenant_id: str, include_inactive: bool = True) -> list[DocumentTemplate]:
     normalized_tenant = _normalize_tenant_id(tenant_id)
     query = """
-        SELECT template_id, tenant_id, name, description, is_active, original_model, custom_model,
-               sample_file_metadata, created_at, updated_at
+        SELECT template_id, tenant_id, name, group_id, description, is_active, original_model, custom_model,
+               sample_file_metadata, drive_folder_id, created_at, updated_at
         FROM document_templates
         WHERE LOWER(tenant_id) = %s
     """
@@ -354,8 +367,8 @@ def get_document_template(*, tenant_id: str, template_id: str) -> DocumentTempla
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT template_id, tenant_id, name, description, is_active, original_model, custom_model,
-                       sample_file_metadata, created_at, updated_at
+                SELECT template_id, tenant_id, name, group_id, description, is_active, original_model, custom_model,
+                       sample_file_metadata, drive_folder_id, created_at, updated_at
                 FROM document_templates
                 WHERE LOWER(tenant_id) = %s AND template_id = %s
                 """,
@@ -374,15 +387,18 @@ def create_document_template(
     *,
     tenant_id: str,
     name: str,
+    group_id: str | None,
     description: str | None,
     original_model: dict,
     custom_model: dict,
     sample_file_metadata: dict | None = None,
+    drive_folder_id: str | None = None,
     field_transforms: list[dict] | None = None,
     is_active: bool = True,
 ) -> DocumentTemplate:
     normalized_tenant = _normalize_tenant_id(tenant_id)
     normalized_name = _normalize_text(name, "name", required=True)
+    normalized_group_id = _normalize_text(group_id, "group_id", required=True)
     normalized_description = _normalize_text(description, "description")
     normalized_original = _normalize_original_model(original_model)
     normalized_custom = _normalize_custom_model(custom_model)
@@ -391,6 +407,7 @@ def create_document_template(
         custom_model=normalized_custom,
     )
     normalized_sample = _normalize_sample_file_metadata(sample_file_metadata)
+    normalized_drive_folder_id = _normalize_text(drive_folder_id, "drive_folder_id")
     template_id = str(uuid.uuid4())
 
     with get_postgres_conn() as conn:
@@ -398,22 +415,24 @@ def create_document_template(
             cur.execute(
                 """
                 INSERT INTO document_templates (
-                  template_id, tenant_id, name, description, is_active,
-                  original_model, custom_model, sample_file_metadata
+                  template_id, tenant_id, name, group_id, description, is_active,
+                  original_model, custom_model, sample_file_metadata, drive_folder_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
-                RETURNING template_id, tenant_id, name, description, is_active, original_model, custom_model,
-                          sample_file_metadata, created_at, updated_at
+                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s)
+                RETURNING template_id, tenant_id, name, group_id, description, is_active, original_model, custom_model,
+                          sample_file_metadata, drive_folder_id, created_at, updated_at
                 """,
                 (
                     template_id,
                     normalized_tenant,
                     normalized_name,
+                    normalized_group_id,
                     normalized_description,
                     bool(is_active),
                     json.dumps(normalized_original),
                     json.dumps(normalized_custom),
                     json.dumps(normalized_sample) if normalized_sample is not None else None,
+                    normalized_drive_folder_id,
                 ),
             )
             row = cur.fetchone()
@@ -431,16 +450,19 @@ def update_document_template(
     tenant_id: str,
     template_id: str,
     name: str,
+    group_id: str | None,
     description: str | None,
     original_model: dict,
     custom_model: dict,
     sample_file_metadata: dict | None = None,
+    drive_folder_id: str | None | object = _UNSET,
     field_transforms: list[dict] | None = None,
     is_active: bool = True,
 ) -> DocumentTemplate | None:
     normalized_tenant = _normalize_tenant_id(tenant_id)
     normalized_template_id = _normalize_text(template_id, "template_id", required=True)
     normalized_name = _normalize_text(name, "name", required=True)
+    normalized_group_id = _normalize_text(group_id, "group_id", required=True)
     normalized_description = _normalize_text(description, "description")
     normalized_original = _normalize_original_model(original_model)
     normalized_custom = _normalize_custom_model(custom_model)
@@ -450,34 +472,47 @@ def update_document_template(
         else None
     )
     normalized_sample = _normalize_sample_file_metadata(sample_file_metadata)
+    normalized_drive_folder_id = (
+        _normalize_text(drive_folder_id, "drive_folder_id")
+        if drive_folder_id is not _UNSET
+        else _UNSET
+    )
 
     with get_postgres_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
+            query = """
                 UPDATE document_templates
                 SET
                   name = %s,
+                  group_id = %s,
                   description = %s,
                   is_active = %s,
                   original_model = %s::jsonb,
                   custom_model = %s::jsonb,
                   sample_file_metadata = %s::jsonb,
+            """
+            params: list[object] = [
+                normalized_name,
+                normalized_group_id,
+                normalized_description,
+                bool(is_active),
+                json.dumps(normalized_original),
+                json.dumps(normalized_custom),
+                json.dumps(normalized_sample) if normalized_sample is not None else None,
+            ]
+            if normalized_drive_folder_id is not _UNSET:
+                query += " drive_folder_id = %s,\n"
+                params.append(normalized_drive_folder_id)
+            query += """
                   updated_at = NOW()
                 WHERE LOWER(tenant_id) = %s AND template_id = %s
-                RETURNING template_id, tenant_id, name, description, is_active, original_model, custom_model,
-                          sample_file_metadata, created_at, updated_at
-                """,
-                (
-                    normalized_name,
-                    normalized_description,
-                    bool(is_active),
-                    json.dumps(normalized_original),
-                    json.dumps(normalized_custom),
-                    json.dumps(normalized_sample) if normalized_sample is not None else None,
-                    normalized_tenant,
-                    normalized_template_id,
-                ),
+                RETURNING template_id, tenant_id, name, group_id, description, is_active, original_model, custom_model,
+                          sample_file_metadata, drive_folder_id, created_at, updated_at
+            """
+            params.extend([normalized_tenant, normalized_template_id])
+            cur.execute(
+                query,
+                params,
             )
             row = cur.fetchone()
         conn.commit()
@@ -510,6 +545,46 @@ def update_document_template(
                 template_id=normalized_template_id,
                 groups=reconciled_groups,
             )
+    template = _row_to_template(row)
+    template.field_transforms = serialize_field_transforms(
+        list_template_field_transforms(template_id=template.template_id)
+    )
+    return template
+
+
+def update_document_template_drive_folder_id(
+    *,
+    tenant_id: str,
+    template_id: str,
+    drive_folder_id: str | None,
+) -> DocumentTemplate | None:
+    normalized_tenant = _normalize_tenant_id(tenant_id)
+    normalized_template_id = _normalize_text(template_id, "template_id", required=True)
+    normalized_drive_folder_id = _normalize_text(drive_folder_id, "drive_folder_id")
+    assert normalized_template_id is not None
+
+    with get_postgres_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE document_templates
+                SET
+                  drive_folder_id = %s,
+                  updated_at = NOW()
+                WHERE LOWER(tenant_id) = %s AND template_id = %s
+                RETURNING template_id, tenant_id, name, group_id, description, is_active, original_model, custom_model,
+                          sample_file_metadata, drive_folder_id, created_at, updated_at
+                """,
+                (
+                    normalized_drive_folder_id,
+                    normalized_tenant,
+                    normalized_template_id,
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return None
     template = _row_to_template(row)
     template.field_transforms = serialize_field_transforms(
         list_template_field_transforms(template_id=template.template_id)

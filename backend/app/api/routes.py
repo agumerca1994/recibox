@@ -18,7 +18,16 @@ from app.services.process_runs import (
     upsert_process_run,
 )
 from app.services.templates.builder import build_template_draft_for_file
+from app.services.templates.drive_folders import ensure_template_group_drive_folder
 from app.services.templates.processor import run_template_flow
+from app.services.templates.groups import (
+    create_template_group,
+    ensure_template_group_name_available,
+    get_template_group,
+    get_template_groups_map,
+    list_template_groups,
+    update_template_group_drive_folder_id,
+)
 from app.services.templates.store import (
     create_document_template,
     delete_document_template,
@@ -134,12 +143,17 @@ class TemplateDraftFromFilePayload(BaseModel):
 
 class TemplatePayload(BaseModel):
     name: str
+    group_id: str
     description: str | None = None
     is_active: bool = True
     original_model: dict
     custom_model: dict
     sample_file_metadata: dict | None = None
     field_transforms: list[dict] | None = None
+
+
+class TemplateGroupPayload(BaseModel):
+    name: str
 
 
 class ClassificationRuleNamePartPayload(BaseModel):
@@ -215,6 +229,8 @@ def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str
 
 
 def _resolve_template_rule_metadata(template, rule) -> tuple[str, bool, list[str]]:
+    if not str(getattr(template, "group_id", "") or "").strip():
+        return "invalid", rule is not None, ["Template group is required"]
     field_definitions = extract_document_field_definitions(template.custom_model)
     rule_status, rule_errors = evaluate_classification_rule_status(
         rule=rule,
@@ -222,6 +238,91 @@ def _resolve_template_rule_metadata(template, rule) -> tuple[str, bool, list[str
     )
     has_rule = rule_status != "missing"
     return rule_status, has_rule, rule_errors
+
+
+def _serialize_template_group(group) -> dict:
+    return {
+        "group_id": group.group_id,
+        "tenant_id": group.tenant_id,
+        "name": group.name,
+        "drive_folder_id": group.drive_folder_id,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
+    }
+
+
+def _sync_template_group_drive_folder_if_needed(group):
+    try:
+        folder = ensure_template_group_drive_folder(
+            tenant_id=group.tenant_id,
+            group_name=group.name,
+            drive_folder_id=group.drive_folder_id,
+        )
+    except Exception:
+        return group
+
+    synced_folder_id = str(folder.get("id", "")).strip()
+    if not synced_folder_id or synced_folder_id == str(group.drive_folder_id or "").strip():
+        return group
+
+    updated_group = update_template_group_drive_folder_id(
+        tenant_id=group.tenant_id,
+        group_id=group.group_id,
+        drive_folder_id=synced_folder_id,
+    )
+    return updated_group or group
+
+
+def _serialize_template_summary_payload(
+    *,
+    template,
+    group_name: str | None,
+    rule_status: str,
+    has_rule: bool,
+) -> dict:
+    return {
+        "template_id": template.template_id,
+        "tenant_id": template.tenant_id,
+        "name": template.name,
+        "group_id": template.group_id,
+        "group_name": group_name,
+        "description": template.description,
+        "is_active": template.is_active,
+        "template_mode": resolve_template_mode(template.custom_model),
+        "sample_file_metadata": template.sample_file_metadata,
+        "drive_folder_id": template.drive_folder_id,
+        "field_transforms": template.field_transforms,
+        "rule_status": rule_status,
+        "has_rule": has_rule,
+        "updated_at": template.updated_at,
+    }
+
+
+def _serialize_template_detail_payload(
+    *,
+    template,
+    group_name: str | None,
+    rule_status: str,
+    has_rule: bool,
+    rule_errors: list[str] | None = None,
+    serialized_rule: dict | None = None,
+) -> dict:
+    payload = _serialize_template_summary_payload(
+        template=template,
+        group_name=group_name,
+        rule_status=rule_status,
+        has_rule=has_rule,
+    )
+    payload.update(
+        {
+            "original_model": template.original_model,
+            "custom_model": template.custom_model,
+            "rule_errors": rule_errors or [],
+            "classification_rule": serialized_rule,
+            "created_at": template.created_at,
+        }
+    )
+    return payload
 
 
 @router.get("/health")
@@ -383,7 +484,13 @@ async def list_files_in_folder_endpoint(
 ):
     _ensure_tenant_active(tenant_id)
     try:
-        files = list(gdrive.list_files_in_folder(folder_id, tenant_id=tenant_id))
+        files = list(
+            gdrive.list_files_in_folder(
+                folder_id,
+                tenant_id=tenant_id,
+                query_extra="mimeType != 'application/vnd.google-apps.folder'",
+            )
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
 
@@ -391,6 +498,29 @@ async def list_files_in_folder_endpoint(
         return {"count": len(files), "files": files}
 
     return {"count": min(len(files), limit), "files": files[:limit]}
+
+
+@router.get("/drive/folders/{folder_id}/contents")
+async def list_folder_contents_endpoint(
+    folder_id: str,
+    tenant_id: str = Query("default"),
+):
+    _ensure_tenant_active(tenant_id)
+    folder_mime = "application/vnd.google-apps.folder"
+    try:
+        items = list(gdrive.list_files_in_folder(folder_id, tenant_id=tenant_id))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
+
+    folders = [item for item in items if item.get("mimeType") == folder_mime]
+    files = [item for item in items if item.get("mimeType") != folder_mime]
+    return {
+        "folder_id": folder_id,
+        "folders_count": len(folders),
+        "files_count": len(files),
+        "folders": folders,
+        "files": files,
+    }
 
 
 @router.get("/drive/picker/folders")
@@ -1193,6 +1323,55 @@ async def create_template_draft_from_file(tenant_id: str, payload: TemplateDraft
     }
 
 
+@router.get("/tenants/{tenant_id}/template-groups")
+async def get_template_groups_endpoint(tenant_id: str, sync: bool = Query(False)):
+    _ensure_tenant_active(tenant_id)
+    try:
+        groups = list_template_groups(tenant_id=tenant_id)
+        if sync:
+            groups = [_sync_template_group_drive_folder_if_needed(group) for group in groups]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List groups failed: {exc}")
+
+    return {
+        "tenant_id": tenant_id,
+        "count": len(groups),
+        "groups": [_serialize_template_group(group) for group in groups],
+    }
+
+
+@router.post("/tenants/{tenant_id}/template-groups")
+async def post_template_group(tenant_id: str, payload: TemplateGroupPayload):
+    _ensure_tenant_active(tenant_id)
+    try:
+        ensure_template_group_name_available(
+            tenant_id=tenant_id,
+            name=payload.name,
+        )
+        drive_folder = ensure_template_group_drive_folder(
+            tenant_id=tenant_id,
+            group_name=payload.name,
+        )
+        drive_folder_id = str(drive_folder.get("id", "")).strip()
+        if not drive_folder_id:
+            raise RuntimeError("Drive group folder id is empty")
+        group = create_template_group(
+            tenant_id=tenant_id,
+            name=payload.name,
+            drive_folder_id=drive_folder_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Create group failed: {exc}")
+
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "group": _serialize_template_group(group),
+    }
+
+
 @router.get("/tenants/{tenant_id}/templates")
 async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
     try:
@@ -1201,6 +1380,10 @@ async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
             tenant_id=tenant_id,
             template_ids=[template.template_id for template in templates],
         )
+        groups_by_id = get_template_groups_map(
+            tenant_id=tenant_id,
+            group_ids=[str(template.group_id or "").strip() for template in templates if str(template.group_id or "").strip()],
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
 
@@ -1208,20 +1391,16 @@ async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
     for template in templates:
         rule = rules_by_template.get(template.template_id)
         rule_status, has_rule, _ = _resolve_template_rule_metadata(template, rule)
+        group = groups_by_id.get(str(template.group_id or "").strip())
+        if group:
+            template.drive_folder_id = group.drive_folder_id
         serialized_templates.append(
-            {
-                "template_id": template.template_id,
-                "tenant_id": template.tenant_id,
-                "name": template.name,
-                "description": template.description,
-                "is_active": template.is_active,
-                "template_mode": resolve_template_mode(template.custom_model),
-                "sample_file_metadata": template.sample_file_metadata,
-                "field_transforms": template.field_transforms,
-                "rule_status": rule_status,
-                "has_rule": has_rule,
-                "updated_at": template.updated_at,
-            }
+            _serialize_template_summary_payload(
+                template=template,
+                group_name=group.name if group else None,
+                rule_status=rule_status,
+                has_rule=has_rule,
+            )
         )
 
     return {
@@ -1236,33 +1415,27 @@ async def get_template_detail(tenant_id: str, template_id: str):
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
         rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
+        group_id = str(template.group_id or "").strip() if template else ""
+        group = get_template_group(tenant_id=tenant_id, group_id=group_id) if group_id else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Get failed: {exc}")
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    if group:
+        template.drive_folder_id = group.drive_folder_id
     rule_status, has_rule, rule_errors = _resolve_template_rule_metadata(template, rule)
     serialized_rule = serialize_classification_rule(rule)
     if serialized_rule:
         serialized_rule["rule_status"] = rule_status
 
-    return {
-        "template_id": template.template_id,
-        "tenant_id": template.tenant_id,
-        "name": template.name,
-        "description": template.description,
-        "is_active": template.is_active,
-        "template_mode": resolve_template_mode(template.custom_model),
-        "original_model": template.original_model,
-        "custom_model": template.custom_model,
-        "sample_file_metadata": template.sample_file_metadata,
-        "field_transforms": template.field_transforms,
-        "rule_status": rule_status,
-        "has_rule": has_rule,
-        "rule_errors": rule_errors,
-        "classification_rule": serialized_rule,
-        "created_at": template.created_at,
-        "updated_at": template.updated_at,
-    }
+    return _serialize_template_detail_payload(
+        template=template,
+        group_name=group.name if group else None,
+        rule_status=rule_status,
+        has_rule=has_rule,
+        rule_errors=rule_errors,
+        serialized_rule=serialized_rule,
+    )
 
 
 @router.get("/tenants/{tenant_id}/templates/{template_id}/source-pdf")
@@ -1326,9 +1499,13 @@ async def post_template_source_pdf(tenant_id: str, template_id: str, file: Uploa
 @router.post("/tenants/{tenant_id}/templates")
 async def post_template(tenant_id: str, payload: TemplatePayload):
     try:
+        group = get_template_group(tenant_id=tenant_id, group_id=payload.group_id)
+        if not group:
+            raise HTTPException(status_code=400, detail="Template group not found")
         template = create_document_template(
             tenant_id=tenant_id,
             name=payload.name,
+            group_id=payload.group_id,
             description=payload.description,
             is_active=payload.is_active,
             original_model=payload.original_model,
@@ -1336,38 +1513,49 @@ async def post_template(tenant_id: str, payload: TemplatePayload):
             sample_file_metadata=payload.sample_file_metadata,
             field_transforms=payload.field_transforms,
         )
+        group_name = group.name
+        drive_folder_id = group.drive_folder_id
+        template.drive_folder_id = drive_folder_id
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Create failed: {exc}")
 
     rule_status, has_rule, _ = _resolve_template_rule_metadata(template, None)
-    return {
+    payload = _serialize_template_detail_payload(
+        template=template,
+        group_name=group_name,
+        rule_status=rule_status,
+        has_rule=has_rule,
+        rule_errors=[],
+        serialized_rule=None,
+    )
+    payload.update({
         "status": "ok",
-        "template_id": template.template_id,
-        "tenant_id": template.tenant_id,
-        "name": template.name,
-        "description": template.description,
-        "is_active": template.is_active,
-        "template_mode": resolve_template_mode(template.custom_model),
-        "original_model": template.original_model,
-        "custom_model": template.custom_model,
-        "sample_file_metadata": template.sample_file_metadata,
-        "field_transforms": template.field_transforms,
-        "rule_status": rule_status,
-        "has_rule": has_rule,
-        "created_at": template.created_at,
-        "updated_at": template.updated_at,
-    }
+    })
+    return payload
 
 
 @router.put("/tenants/{tenant_id}/templates/{template_id}")
 async def put_template(tenant_id: str, template_id: str, payload: TemplatePayload):
     try:
+        existing_template = get_document_template(tenant_id=tenant_id, template_id=template_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get template failed: {exc}")
+    if not existing_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    try:
+        group = get_template_group(tenant_id=tenant_id, group_id=payload.group_id)
+        if not group:
+            raise HTTPException(status_code=400, detail="Template group not found")
         template = update_document_template(
             tenant_id=tenant_id,
             template_id=template_id,
             name=payload.name,
+            group_id=payload.group_id,
             description=payload.description,
             is_active=payload.is_active,
             original_model=payload.original_model,
@@ -1375,8 +1563,14 @@ async def put_template(tenant_id: str, template_id: str, payload: TemplatePayloa
             sample_file_metadata=payload.sample_file_metadata,
             field_transforms=payload.field_transforms,
         )
+        group_name = group.name
+        drive_folder_id = group.drive_folder_id
+        if template is not None:
+            template.drive_folder_id = drive_folder_id
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Update failed: {exc}")
 
@@ -1389,25 +1583,18 @@ async def put_template(tenant_id: str, template_id: str, payload: TemplatePayloa
     if serialized_rule:
         serialized_rule["rule_status"] = rule_status
 
-    return {
+    response_payload = _serialize_template_detail_payload(
+        template=template,
+        group_name=group_name,
+        rule_status=rule_status,
+        has_rule=has_rule,
+        rule_errors=rule_errors,
+        serialized_rule=serialized_rule,
+    )
+    response_payload.update({
         "status": "ok",
-        "template_id": template.template_id,
-        "tenant_id": template.tenant_id,
-        "name": template.name,
-        "description": template.description,
-        "is_active": template.is_active,
-        "template_mode": resolve_template_mode(template.custom_model),
-        "original_model": template.original_model,
-        "custom_model": template.custom_model,
-        "sample_file_metadata": template.sample_file_metadata,
-        "field_transforms": template.field_transforms,
-        "rule_status": rule_status,
-        "has_rule": has_rule,
-        "rule_errors": rule_errors,
-        "classification_rule": serialized_rule,
-        "created_at": template.created_at,
-        "updated_at": template.updated_at,
-    }
+    })
+    return response_payload
 
 
 @router.get("/tenants/{tenant_id}/templates/{template_id}/classification-rule")

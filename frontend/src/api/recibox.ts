@@ -1,6 +1,7 @@
 import { apiRequest } from './client'
 import type {
   DriveFilesResponse,
+  DriveFolderContentsResponse,
   DriveFoldersResponse,
   HealthResponse,
   IngestDrivePayload,
@@ -18,6 +19,8 @@ import type {
   StopJobResponse,
   TenantDriveConfig,
   TemplateFieldTransformGroup,
+  TemplateGroupCreateResponse,
+  TemplateGroupListResponse,
   TemplateClassificationRuleResponse,
   TemplateDetail,
   TemplateDraftResponse,
@@ -37,6 +40,7 @@ function buildApiUrl(path: string): string {
 
 export type TemplateUpsertPayload = {
   name: string
+  group_id: string
   description?: string | null
   is_active?: boolean
   original_model: Record<string, unknown>
@@ -76,6 +80,12 @@ export function listEmployeeYears(tenantId: string, employeeFolderId: string) {
 
 export function listFilesInFolder(tenantId: string, folderId: string) {
   return apiRequest<DriveFilesResponse>(`/drive/folders/${encodeURIComponent(folderId)}/files?${queryTenant(tenantId)}`)
+}
+
+export function listFolderContents(tenantId: string, folderId: string) {
+  return apiRequest<DriveFolderContentsResponse>(
+    `/drive/folders/${encodeURIComponent(folderId)}/contents?${queryTenant(tenantId)}`,
+  )
 }
 
 export function ingestDrive(tenantId: string, payload?: IngestDrivePayload) {
@@ -163,6 +173,18 @@ export function listTemplates(tenantId: string, includeInactive = true) {
   return apiRequest<TemplateListResponse>(
     `/tenants/${encodeURIComponent(tenantId)}/templates?include_inactive=${encodeURIComponent(String(includeInactive))}`,
   )
+}
+
+export function listTemplateGroups(tenantId: string, options?: { sync?: boolean }) {
+  const query = options?.sync ? '?sync=true' : ''
+  return apiRequest<TemplateGroupListResponse>(`/tenants/${encodeURIComponent(tenantId)}/template-groups${query}`)
+}
+
+export function createTemplateGroup(tenantId: string, name: string) {
+  return apiRequest<TemplateGroupCreateResponse>(`/tenants/${encodeURIComponent(tenantId)}/template-groups`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
 }
 
 export function getTemplate(tenantId: string, templateId: string) {

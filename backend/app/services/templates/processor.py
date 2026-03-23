@@ -20,13 +20,57 @@ from app.services.templates.classification_rules import (
     extract_document_field_definitions,
     get_classification_rule,
 )
+from app.services.templates.drive_folders import ensure_template_group_drive_folder
 from app.services.templates.field_transforms import (
     FieldTransformGroupInput,
     apply_field_transforms_to_value_map,
     parse_field_transforms_payload,
 )
+from app.services.templates.groups import get_template_group, update_template_group_drive_folder_id
 from app.services.templates.store import get_document_template, resolve_template_mode
 from app.services.tenants.drive_config import resolve_tenant_drive_config
+
+
+MISSING_FOLDER_STRUCTURE_MESSAGE = "Estructura de carpetas para guardar no existe"
+
+
+class MissingFolderStructureError(RuntimeError):
+    def __init__(self, *, folder_name: str, parent_id: str):
+        self.folder_name = str(folder_name or "").strip()
+        self.parent_id = str(parent_id or "").strip()
+        super().__init__(
+            "Missing folder '%s' under parent '%s' while create-if-missing is disabled"
+            % (self.folder_name or "unknown", self.parent_id or "unknown")
+        )
+
+
+def _resolve_template_processing_root(*, tenant_id: str, template):
+    group_id = str(getattr(template, "group_id", "") or "").strip()
+    if not group_id:
+        raise RuntimeError("Template group is required")
+
+    group = get_template_group(tenant_id=tenant_id, group_id=group_id)
+    if group is None:
+        raise RuntimeError("Template group was not found")
+
+    folder = ensure_template_group_drive_folder(
+        tenant_id=tenant_id,
+        group_name=group.name,
+        drive_folder_id=group.drive_folder_id,
+    )
+    folder_id = str(folder.get("id", "")).strip()
+    if not folder_id:
+        raise RuntimeError("Template group Drive folder sync returned empty id")
+    if folder_id != group.drive_folder_id:
+        updated_group = update_template_group_drive_folder_id(
+            tenant_id=tenant_id,
+            group_id=group.group_id,
+            drive_folder_id=folder_id,
+        )
+        if updated_group is not None:
+            group = updated_group
+
+    return group, folder
 
 
 def _update_current_job_progress(
@@ -226,6 +270,65 @@ def _normalize_match_name(value: str) -> str:
     return " ".join(value.strip().casefold().split())
 
 
+def _has_index_name_part(node: ClassificationRuleNode) -> bool:
+    return any(part.part_type == "index" for part in node.name_parts)
+
+
+def _index_part_orders(node: ClassificationRuleNode) -> list[int]:
+    return [part_index for part_index, part in enumerate(node.name_parts) if part.part_type == "index"]
+
+
+def _build_node_name_pattern(
+    *,
+    node: ClassificationRuleNode,
+    value_map: dict[str, str],
+    strict_fields: bool,
+    capture_index_part_orders: set[int] | None = None,
+) -> re.Pattern[str] | None:
+    raw_parts: list[str] = []
+    replacements: list[tuple[str, str]] = []
+    capture_orders = capture_index_part_orders or set()
+
+    for part_index, part in enumerate(node.name_parts):
+        if part.part_type == "literal":
+            raw_parts.append(str(part.literal_value or ""))
+            continue
+
+        if part.part_type == "field":
+            if strict_fields:
+                field_value = str(value_map.get(str(part.field_key or "").strip(), "")).strip()
+                if not field_value:
+                    return None
+                raw_parts.append(field_value)
+            else:
+                placeholder = f"__RBXFIELD{part_index}__"
+                raw_parts.append(placeholder)
+                replacements.append((placeholder, r".*?"))
+            continue
+
+        kind = str(part.index_kind or "").strip().lower()
+        if kind == "numeric":
+            token = r"\d{1,4}"
+        elif kind == "alphabetic":
+            token = r"[A-Za-z]"
+        else:
+            return None
+
+        placeholder = f"__RBXIDX{part_index}__"
+        raw_parts.append(placeholder)
+        replacements.append((placeholder, f"({token})" if part_index in capture_orders else token))
+
+    sanitized_template = _sanitize_drive_name("".join(raw_parts), "")
+    if not sanitized_template:
+        return None
+
+    escaped_pattern = re.escape(sanitized_template)
+    for placeholder, replacement in replacements:
+        escaped_pattern = escaped_pattern.replace(re.escape(placeholder), replacement)
+
+    return re.compile("^" + escaped_pattern + "$", re.IGNORECASE)
+
+
 def _resolve_field_requirements(field_definitions: list[DocumentFieldDefinition]) -> set[str]:
     return {item.key for item in field_definitions if item.required}
 
@@ -251,32 +354,12 @@ def _extract_index_values_from_existing_names(
         return []
 
     def build_pattern(*, strict_fields: bool) -> re.Pattern[str] | None:
-        pattern_parts: list[str] = []
-        capture_group = ""
-        for part_index, part in enumerate(node.name_parts):
-            if part.part_type == "literal":
-                literal = _sanitize_drive_name(str(part.literal_value or ""), "")
-                pattern_parts.append(re.escape(literal))
-                continue
-            if part.part_type == "field":
-                if strict_fields:
-                    field_value = str(value_map.get(str(part.field_key or "").strip(), "")).strip()
-                    pattern_parts.append(re.escape(_sanitize_drive_name(field_value, "")))
-                else:
-                    pattern_parts.append(r".*?")
-                continue
-
-            kind = str(part.index_kind or "").strip().lower()
-            token = r"\d{1,4}" if kind == "numeric" else r"[A-Za-z]"
-            if part_index == target_part_order:
-                capture_group = token
-                pattern_parts.append(f"({token})")
-            else:
-                pattern_parts.append(token)
-
-        if not capture_group:
-            return None
-        return re.compile("^" + "".join(pattern_parts) + "$", re.IGNORECASE)
+        return _build_node_name_pattern(
+            node=node,
+            value_map=value_map,
+            strict_fields=strict_fields,
+            capture_index_part_orders={target_part_order},
+        )
 
     def collect_values(regex: re.Pattern[str]) -> list[int]:
         out: list[int] = []
@@ -415,6 +498,93 @@ def _render_node_name(
     return sanitized, missing_required
 
 
+def _build_existing_item_match_regex(
+    *,
+    node: ClassificationRuleNode,
+    value_map: dict[str, str],
+) -> re.Pattern[str] | None:
+    return _build_node_name_pattern(
+        node=node,
+        value_map=value_map,
+        strict_fields=True,
+        capture_index_part_orders=set(_index_part_orders(node)),
+    )
+
+
+def _resolve_existing_rule_folder(
+    *,
+    parent_id: str,
+    node: ClassificationRuleNode,
+    value_map: dict[str, str],
+    tenant_id: str,
+) -> dict | None:
+    regex = _build_existing_item_match_regex(node=node, value_map=value_map)
+    if regex is None:
+        return None
+
+    existing = _list_child_folders(parent_id, tenant_id=tenant_id)
+    matches: list[tuple[dict, tuple[int, ...]]] = []
+
+    for folder in existing:
+        folder_name = str(folder.get("name", "")).strip()
+        match = regex.match(folder_name)
+        if not match:
+            continue
+
+        index_values: list[int] = []
+        group_index = 1
+        for part in node.name_parts:
+            if part.part_type != "index":
+                continue
+            token = str(match.group(group_index) or "").strip()
+            kind = str(part.index_kind or "").strip().lower()
+            if kind == "numeric":
+                try:
+                    index_values.append(int(token))
+                except ValueError:
+                    index_values.append(-1)
+            else:
+                alpha = token.upper()
+                if len(alpha) == 1 and "A" <= alpha <= "Z":
+                    index_values.append(_to_index_numeric(alpha))
+                else:
+                    index_values.append(-1)
+            group_index += 1
+
+        sort_key: tuple[int, ...]
+        if index_values:
+            direction_adjusted: list[int] = []
+            index_part_order = 0
+            for part in node.name_parts:
+                if part.part_type != "index":
+                    continue
+                direction = str(part.index_direction or "").strip().lower()
+                value = index_values[index_part_order]
+                direction_adjusted.append(value if direction == "incremental" else -value)
+                index_part_order += 1
+            sort_key = tuple(direction_adjusted)
+        else:
+            sort_key = tuple()
+
+        matches.append((folder, sort_key))
+
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0][0]
+    if not _has_index_name_part(node):
+        raise RuntimeError(
+            "Ambiguous existing folders for rule node '%s' under parent '%s'" % (node.node_id, parent_id)
+        )
+
+    matches.sort(key=lambda item: item[1], reverse=True)
+    if len(matches) > 1 and matches[0][1] == matches[1][1]:
+        raise RuntimeError(
+            "Ambiguous indexed folders for rule node '%s' under parent '%s'" % (node.node_id, parent_id)
+        )
+    return matches[0][0]
+
+
 def _list_child_folders(parent_id: str, *, tenant_id: str) -> list[dict]:
     query = "mimeType = 'application/vnd.google-apps.folder'"
     return list(gdrive.list_files_in_folder(parent_id, query_extra=query, tenant_id=tenant_id))
@@ -464,9 +634,6 @@ def _resolve_folder_by_policy(
     conflict_policy: str,
     tenant_id: str,
 ) -> tuple[dict, bool]:
-    if conflict_policy == "create_new":
-        return gdrive.create_folder(parent_id, folder_name, tenant_id=tenant_id), True
-
     existing = _list_child_folders(parent_id, tenant_id=tenant_id)
     normalized_target = _normalize_match_name(folder_name)
     matches = [folder for folder in existing if _normalize_match_name(str(folder.get("name", ""))) == normalized_target]
@@ -477,7 +644,9 @@ def _resolve_folder_by_policy(
         raise RuntimeError(
             "Ambiguous existing folders for '%s' under parent '%s'" % (folder_name, parent_id)
         )
-    return gdrive.create_folder(parent_id, folder_name, tenant_id=tenant_id), True
+    if conflict_policy == "create_new":
+        return gdrive.create_folder(parent_id, folder_name, tenant_id=tenant_id), True
+    raise MissingFolderStructureError(folder_name=folder_name, parent_id=parent_id)
 
 
 def _build_mixed_value_map(*, extracted_values: dict[str, str], fallback_values: dict[str, str]) -> dict[str, str]:
@@ -495,6 +664,17 @@ def _build_mixed_value_map(*, extracted_values: dict[str, str], fallback_values:
             merged.setdefault(str(key), "")
 
     return merged
+
+
+def _resolve_group_aware_conflict_policy(*, template, conflict_policy: str | None) -> str:
+    policy = str(conflict_policy or "use_existing").strip() or "use_existing"
+    group_id = str(getattr(template, "group_id", "") or "").strip()
+    if group_id and policy == "use_existing":
+        # Group-based classification starts from a dedicated root per group. To keep
+        # existing rules working after introducing that extra level, we allow the
+        # processor to materialize missing folders on demand inside the group.
+        return "create_new"
+    return policy
 
 
 def _process_one_template_document(
@@ -553,15 +733,28 @@ def _process_one_template_document(
     target_filename = ""
     effective_child_name_cache = child_name_cache if child_name_cache is not None else {}
     missing_required_keys: list[str] = []
+    group_folder_name = str(getattr(template, "group_name", "") or "").strip()
+    target_folders_prefix = [group_folder_name] if group_folder_name else []
     try:
         for node in ordered_nodes:
             item_type = "folder" if node.node_type == "folder" else "file"
-            existing_names = _get_cached_child_names(
-                cache=effective_child_name_cache,
-                parent_id=current_parent_id,
-                item_type=item_type,
-                tenant_id=tenant_id,
-            )
+            existing_folder = None
+            if node.node_type == "folder":
+                existing_folders = _list_child_folders(current_parent_id, tenant_id=tenant_id)
+                existing_names = [str(item.get("name", "")).strip() for item in existing_folders]
+                existing_folder = _resolve_existing_rule_folder(
+                    parent_id=current_parent_id,
+                    node=node,
+                    value_map=value_map,
+                    tenant_id=tenant_id,
+                )
+            else:
+                existing_names = _get_cached_child_names(
+                    cache=effective_child_name_cache,
+                    parent_id=current_parent_id,
+                    item_type=item_type,
+                    tenant_id=tenant_id,
+                )
             rendered_name, missing_keys = _render_node_name(
                 node,
                 value_map=value_map,
@@ -575,7 +768,17 @@ def _process_one_template_document(
                 raise RuntimeError(f"No se pudo construir el nombre de {node_label} para el nodo {node.node_order}")
 
             if node.node_type == "folder":
-                policy = node.conflict_policy or "use_existing"
+                if existing_folder is not None:
+                    current_parent_id = str(existing_folder.get("id", "")).strip()
+                    resolved_folders.append(str(existing_folder.get("name", rendered_name)))
+                    if not current_parent_id:
+                        raise RuntimeError("Drive folder resolution returned empty id")
+                    continue
+
+                policy = _resolve_group_aware_conflict_policy(
+                    template=template,
+                    conflict_policy=node.conflict_policy,
+                )
                 folder, created_new = _resolve_folder_by_policy(
                     parent_id=current_parent_id,
                     folder_name=rendered_name,
@@ -612,6 +815,18 @@ def _process_one_template_document(
             item_type="file",
             name=target_filename,
         )
+    except MissingFolderStructureError as exc:
+        return ProcessResult(
+            file_id=file_id,
+            status="error",
+            message=MISSING_FOLDER_STRUCTURE_MESSAGE,
+            info=info if "info" in locals() else None,
+            target={
+                "folders": [*target_folders_prefix, *resolved_folders],
+                "new_filename": target_filename,
+            },
+            error=str(exc),
+        )
     except Exception as exc:
         return ProcessResult(
             file_id=file_id,
@@ -619,7 +834,7 @@ def _process_one_template_document(
             message="Drive move/rename failed",
             info=info if "info" in locals() else None,
             target={
-                "folders": resolved_folders,
+                "folders": [*target_folders_prefix, *resolved_folders],
                 "new_filename": target_filename,
             },
             error=str(exc),
@@ -636,7 +851,7 @@ def _process_one_template_document(
         message=f"Processed with template and moved: {file_name}",
         info=info if "info" in locals() else None,
         target={
-            "folders": resolved_folders,
+            "folders": [*target_folders_prefix, *resolved_folders],
             "new_filename": target_filename,
             "template_id": template.template_id,
             "classification_rule_id": classification_rule.rule_id,
@@ -696,6 +911,14 @@ def run_template_flow(*, tenant_id: str, template_id: str, file_ids: list[str] |
             return {"status": "error", "message": "Template is inactive"}
         if resolve_template_mode(template.custom_model) != "document":
             return {"status": "error", "message": "Template is not compatible with document mode"}
+        template_group, template_group_folder = _resolve_template_processing_root(
+            tenant_id=tenant_id,
+            template=template,
+        )
+        setattr(template, "group_name", template_group.name)
+        template_group_folder_id = str(template_group_folder.get("id", "")).strip()
+        if not template_group_folder_id:
+            return {"status": "error", "message": "Template group Drive folder is unavailable"}
 
         rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
         field_definitions = extract_document_field_definitions(template.custom_model)
@@ -737,7 +960,7 @@ def run_template_flow(*, tenant_id: str, template_id: str, file_ids: list[str] |
             result = _process_one_template_document(
                 file_meta,
                 tenant_id=tenant_id,
-                drive_root_folder_id=cfg.recibox_folder_id,
+                drive_root_folder_id=template_group_folder_id,
                 template=template,
                 classification_rule=rule,
                 field_definitions=field_definitions,

@@ -35,6 +35,7 @@ import {
   buildDrivePdfDownloadUrl,
   buildTemplateSourcePdfUrl,
   checkReciboxStructure,
+  createTemplateGroup,
   createTemplate,
   createReciboxStructure,
   deleteTemplate,
@@ -42,13 +43,13 @@ import {
   getTemplateClassificationRule,
   getGoogleOAuthStatus,
   ingestDrive,
-  listEmployeeFolders,
-  listEmployeeYears,
+  listFolderContents,
   listFilesInFolder,
   listDriveFiles,
   listProcessRuns,
   listPickerFolders,
   listTemplates,
+  listTemplateGroups,
   putTemplateClassificationRule,
   putTenantDriveConfig,
   stopJob,
@@ -81,6 +82,7 @@ import type {
   TemplateFieldTransformGroup,
   TemplateFieldTransformOperation,
   TemplateFieldTransformStep,
+  TemplateGroup,
   TemplateSummary,
 } from './types/api'
 
@@ -88,6 +90,8 @@ const defaultTenant = normalizeTenantId(import.meta.env.VITE_TENANT_ID || 'acme'
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
 const pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 const templateLocalUploadEnabled = (getRuntimeSetting('VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED') || 'false').toLowerCase() === 'true'
+const templateListCacheTtlMs = 30_000
+const templateGroupCacheTtlMs = 60_000
 const legacyProcessingFlowEnabled =
   (getRuntimeSetting('VITE_ENABLE_LEGACY_PROCESSING_FLOW') || 'false').toLowerCase() === 'true'
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc
@@ -208,6 +212,7 @@ type TemplateFieldDraftForm = {
 
 type TemplateEditorState = {
   name: string
+  groupId: string
   description: string
   isActive: boolean
   sourcePdfBlob: Blob | null
@@ -242,6 +247,11 @@ type RuleFieldOption = {
   label: string
   required: boolean
   previewValue: string
+}
+
+type NominaFolderContentsCacheEntry = {
+  folders: DriveFolder[]
+  files: DriveFile[]
 }
 
 type RulePartTypeDraft = ClassificationRulePartType | 'space'
@@ -719,7 +729,7 @@ function RuleBuilderNodeCard({
         </div>
 
         <p className="text-xs text-slate-500">
-          Vista previa nodo:{' '}
+          Vista previa:{' '}
           <strong className="font-semibold text-slate-700">{buildRuleNodePreview(node, fieldOptions)}</strong>
         </p>
       </article>
@@ -864,6 +874,14 @@ function compareEmployeeFolders(a: DriveFolder, b: DriveFolder): number {
   return a.id.localeCompare(b.id)
 }
 
+function compareTemplateGroups(a: TemplateGroup, b: TemplateGroup): number {
+  const cmp = employeeNameCollator.compare(normalizeSearchText(a.name), normalizeSearchText(b.name))
+  if (cmp !== 0) {
+    return cmp
+  }
+  return a.group_id.localeCompare(b.group_id)
+}
+
 function mapProcessRunItem(record: ProcessRunRecord): ProcessItem {
   const createdAtIso = record.created_at || record.detail?.created_at || null
   const createdAt = createdAtIso ? new Date(createdAtIso).getTime() : 0
@@ -1004,6 +1022,7 @@ function buildTemplateNameFromFile(fileName: string): string {
 function createEmptyTemplateEditor(): TemplateEditorState {
   return {
     name: '',
+    groupId: '',
     description: '',
     isActive: true,
     sourcePdfBlob: null,
@@ -1925,7 +1944,7 @@ function createRuleNodeDraft(
 }
 
 function buildDefaultRuleNodes(fieldOptions: RuleFieldOption[]): ClassificationRuleNodeDraft[] {
-  const folderNode = createRuleNodeDraft('folder', fieldOptions, 'use_existing')
+  const folderNode = createRuleNodeDraft('folder', fieldOptions, 'create_new')
   const fileNode = createRuleNodeDraft('file', fieldOptions, null)
   return [folderNode, fileNode]
 }
@@ -2040,14 +2059,23 @@ function buildRuleNodePreview(node: ClassificationRuleNodeDraft, fieldOptions: R
 function buildRulePathPreview(
   nodes: ClassificationRuleNodeDraft[],
   fieldOptions: RuleFieldOption[],
+  rootLabel?: string,
 ): { folders: string[]; fileName: string } {
+  const normalizedRootLabel = rootLabel?.trim() || ''
   if (!Array.isArray(nodes) || nodes.length === 0) {
-    return { folders: [], fileName: '(archivo)' }
+    return {
+      folders: normalizedRootLabel ? [normalizedRootLabel] : [],
+      fileName: '(archivo)',
+    }
   }
   const folderNodes = nodes.slice(0, Math.max(nodes.length - 1, 0))
   const fileNode = nodes[nodes.length - 1] || null
+  const folders = folderNodes.map((node) => buildRuleNodePreview(node, fieldOptions))
+  if (normalizedRootLabel) {
+    folders.unshift(normalizedRootLabel)
+  }
   return {
-    folders: folderNodes.map((node) => buildRuleNodePreview(node, fieldOptions)),
+    folders,
     fileName: fileNode ? buildRuleNodePreview(fileNode, fieldOptions) : '(archivo)',
   }
 }
@@ -2184,7 +2212,7 @@ function BackofficeApp() {
   const [pendingFiles, setPendingFiles] = useState<DriveFile[]>([])
   const [processLoading, setProcessLoading] = useState(false)
   const [processError, setProcessError] = useState('')
-  const [processingMode, setProcessingMode] = useState<ProcessingMode>(legacyProcessingFlowEnabled ? 'default' : 'template')
+  const [processingMode, setProcessingMode] = useState<ProcessingMode>('template')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [selectedPendingFileIds, setSelectedPendingFileIds] = useState<string[]>([])
   const [showProcessModeModal, setShowProcessModeModal] = useState(false)
@@ -2192,16 +2220,27 @@ function BackofficeApp() {
   const [selectedProcess, setSelectedProcess] = useState<ProcessItem | null>(null)
   const [processPauseCandidate, setProcessPauseCandidate] = useState<ProcessItem | null>(null)
   const [stoppingProcessId, setStoppingProcessId] = useState<string | null>(null)
-  const [employees, setEmployees] = useState<DriveFolder[]>([])
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
-  const [employeeYears, setEmployeeYears] = useState<DriveFolder[]>([])
-  const [selectedYearFolderId, setSelectedYearFolderId] = useState('')
+  const [nominaSelectedGroupId, setNominaSelectedGroupId] = useState('')
+  const [nominaFolders, setNominaFolders] = useState<DriveFolder[]>([])
+  const [nominaFolderStack, setNominaFolderStack] = useState<DriveFolder[]>([])
   const [nominaFiles, setNominaFiles] = useState<DriveFile[]>([])
   const [nominaLoading, setNominaLoading] = useState(false)
   const [nominaFilesLoading, setNominaFilesLoading] = useState(false)
   const [nominaError, setNominaError] = useState('')
-  const [collaboratorSearch, setCollaboratorSearch] = useState('')
-  const [collaboratorSort, setCollaboratorSort] = useState<SortOrder>('asc')
+  const [folderSearch, setFolderSearch] = useState('')
+  const [folderSort, setFolderSort] = useState<SortOrder>('asc')
+  const nominaFolderContentsCacheRef = useRef<Record<string, NominaFolderContentsCacheEntry>>({})
+  const templatesCacheRef = useRef<{
+    tenantId: string
+    includeInactive: boolean
+    items: TemplateSummary[]
+    loadedAt: number
+  } | null>(null)
+  const templateGroupsCacheRef = useRef<{
+    tenantId: string
+    items: TemplateGroup[]
+    loadedAt: number
+  } | null>(null)
 
   const [showConnectRequiredModal, setShowConnectRequiredModal] = useState(false)
   const [showTutorialModal, setShowTutorialModal] = useState(false)
@@ -2229,6 +2268,13 @@ function BackofficeApp() {
   const [templateActionLoadingId, setTemplateActionLoadingId] = useState<string | null>(null)
   const [templateError, setTemplateError] = useState('')
   const [templateSuccess, setTemplateSuccess] = useState('')
+  const [templateGroups, setTemplateGroups] = useState<TemplateGroup[]>([])
+  const [templateGroupsLoading, setTemplateGroupsLoading] = useState(false)
+  const [templateGroupsError, setTemplateGroupsError] = useState('')
+  const [showTemplateGroupCreateModal, setShowTemplateGroupCreateModal] = useState(false)
+  const [templateGroupDraftName, setTemplateGroupDraftName] = useState('')
+  const [templateGroupSaving, setTemplateGroupSaving] = useState(false)
+  const [templateGroupCreateError, setTemplateGroupCreateError] = useState('')
   const [templates, setTemplates] = useState<TemplateSummary[]>([])
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [selectedDraftFileId, setSelectedDraftFileId] = useState('')
@@ -2251,6 +2297,7 @@ function BackofficeApp() {
   const [classificationRuleSaving, setClassificationRuleSaving] = useState(false)
   const [classificationRuleTemplateId, setClassificationRuleTemplateId] = useState('')
   const [classificationRuleTemplateName, setClassificationRuleTemplateName] = useState('')
+  const [classificationRuleGroupName, setClassificationRuleGroupName] = useState('')
   const [classificationRuleFieldOptions, setClassificationRuleFieldOptions] = useState<RuleFieldOption[]>([])
   const [classificationRuleNodes, setClassificationRuleNodes] = useState<ClassificationRuleNodeDraft[]>([])
   const [classificationRuleActiveOverlay, setClassificationRuleActiveOverlay] = useState<RuleDragOverlayChipDraft | null>(null)
@@ -2582,7 +2629,19 @@ function BackofficeApp() {
   }, [tenantId])
 
   const loadTemplatesForTenant = useCallback(
-    async (includeInactive = true) => {
+    async (includeInactive = true, options?: { force?: boolean }): Promise<TemplateSummary[]> => {
+      const cached = templatesCacheRef.current
+      const canReuseCache =
+        !options?.force &&
+        cached?.tenantId === tenantId &&
+        cached.includeInactive === includeInactive &&
+        Date.now() - cached.loadedAt < templateListCacheTtlMs
+      if (canReuseCache && cached) {
+        setTemplateError('')
+        setTemplates(cached.items)
+        return cached.items
+      }
+
       setTemplatesLoading(true)
       setTemplateError('')
       const response = await listTemplates(tenantId, includeInactive)
@@ -2590,12 +2649,52 @@ function BackofficeApp() {
       if (!response.ok || !response.data) {
         setTemplates([])
         setTemplateError(response.error || 'No se pudieron cargar las plantillas.')
-        return
+        return []
       }
-      setTemplates(response.data.templates || [])
+      const nextTemplates = response.data.templates || []
+      setTemplates(nextTemplates)
+      templatesCacheRef.current = {
+        tenantId,
+        includeInactive,
+        items: nextTemplates,
+        loadedAt: Date.now(),
+      }
+      return nextTemplates
     },
     [tenantId],
   )
+
+  const loadTemplateGroupsForTenant = useCallback(async (options?: { force?: boolean; sync?: boolean }): Promise<TemplateGroup[]> => {
+    const cached = templateGroupsCacheRef.current
+    const canReuseCache =
+      !options?.force &&
+      !options?.sync &&
+      cached?.tenantId === tenantId &&
+      Date.now() - cached.loadedAt < templateGroupCacheTtlMs
+    if (canReuseCache && cached) {
+      setTemplateGroupsError('')
+      setTemplateGroups(cached.items)
+      return cached.items
+    }
+
+    setTemplateGroupsLoading(true)
+    setTemplateGroupsError('')
+    const response = await listTemplateGroups(tenantId, { sync: options?.sync })
+    setTemplateGroupsLoading(false)
+    if (!response.ok || !response.data) {
+      setTemplateGroups([])
+      setTemplateGroupsError(response.error || 'No se pudieron cargar los grupos.')
+      return []
+    }
+    const groups = [...(response.data.groups || [])].sort(compareTemplateGroups)
+    setTemplateGroups(groups)
+    templateGroupsCacheRef.current = {
+      tenantId,
+      items: groups,
+      loadedAt: Date.now(),
+    }
+    return groups
+  }, [tenantId])
 
   const resetTemplateEditor = useCallback(() => {
     setEditingTemplateId(null)
@@ -2610,6 +2709,10 @@ function BackofficeApp() {
     setTemplateFormatDraftSteps([])
     setTemplateFormatNameDraft('')
     setTemplateFormatNameEditing(false)
+    setShowTemplateGroupCreateModal(false)
+    setTemplateGroupDraftName('')
+    setTemplateGroupSaving(false)
+    setTemplateGroupCreateError('')
     closeTemplateListActionMenu()
     setShowTemplateEditorModal(false)
     setTemplateError('')
@@ -2653,9 +2756,16 @@ function BackofficeApp() {
     setTemplateSuccess('')
     try {
       const preview = await buildPdfPreviewFromBlob(sourceBlob)
+      if (templateGroups.length === 0) {
+        await loadTemplateGroupsForTenant()
+      }
+      setShowTemplateGroupCreateModal(false)
+      setTemplateGroupDraftName('')
+      setTemplateGroupCreateError('')
       setEditingTemplateId(null)
       setTemplateEditor({
         name: buildTemplateNameFromFile(sourceFileName || 'Nueva plantilla'),
+        groupId: '',
         description: '',
         isActive: true,
         sourcePdfBlob: sourceBlob,
@@ -2676,7 +2786,7 @@ function BackofficeApp() {
     } finally {
       setTemplateDraftLoading(false)
     }
-  }, [pendingFiles, selectedDraftFileId, tenantId, uploadedTemplateFile])
+  }, [loadTemplateGroupsForTenant, pendingFiles, selectedDraftFileId, templateGroups.length, tenantId, uploadedTemplateFile])
 
   const loadTemplateIntoEditor = useCallback(
     async (templateId: string) => {
@@ -2712,9 +2822,16 @@ function BackofficeApp() {
         }
 
         const preview = await buildPdfPreviewFromBlob(sourceBlob)
+        if (templateGroups.length === 0) {
+          await loadTemplateGroupsForTenant()
+        }
+        setShowTemplateGroupCreateModal(false)
+        setTemplateGroupDraftName('')
+        setTemplateGroupCreateError('')
         setEditingTemplateId(templateId)
         setTemplateEditor({
           name: response.data.name,
+          groupId: response.data.group_id || '',
           description: response.data.description || '',
           isActive: response.data.is_active,
           sourcePdfBlob: sourceBlob,
@@ -2736,8 +2853,62 @@ function BackofficeApp() {
         setTemplateActionLoadingId(null)
       }
     },
-    [tenantId],
+    [loadTemplateGroupsForTenant, templateGroups.length, tenantId],
   )
+
+  const createTemplateGroupFromModal = useCallback(async () => {
+    const normalizedName = templateGroupDraftName.trim()
+    if (!normalizedName) {
+      setTemplateGroupCreateError('El nombre del grupo es obligatorio.')
+      return
+    }
+
+    setTemplateGroupSaving(true)
+    setTemplateGroupCreateError('')
+    const response = await createTemplateGroup(tenantId, normalizedName)
+    setTemplateGroupSaving(false)
+    if (!response.ok || !response.data?.group) {
+      setTemplateGroupCreateError(response.error || 'No se pudo crear el grupo.')
+      return
+    }
+
+    const createdGroup = response.data.group
+    setTemplateGroups((prev) => {
+      const nextGroups = [...prev, createdGroup].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+      templateGroupsCacheRef.current = {
+        tenantId,
+        items: nextGroups,
+        loadedAt: Date.now(),
+      }
+      return nextGroups
+    })
+    setTemplateEditor((prev) => ({
+      ...prev,
+      groupId: createdGroup.group_id,
+    }))
+    setShowTemplateGroupCreateModal(false)
+    setTemplateGroupDraftName('')
+    setTemplateGroupCreateError('')
+    setTemplateGroupsError('')
+  }, [templateGroupDraftName, tenantId])
+
+  const openTemplateGroupCreateModal = useCallback(() => {
+    setShowTemplateGroupCreateModal(true)
+    setTemplateGroupDraftName('')
+    setTemplateGroupCreateError('')
+  }, [])
+
+  const handleTemplateGroupChange = useCallback((nextValue: string) => {
+    if (nextValue === '__create_group__') {
+      openTemplateGroupCreateModal()
+      return
+    }
+    setTemplateEditor((prev) => ({
+      ...prev,
+      groupId: nextValue,
+    }))
+    setTemplateError('')
+  }, [openTemplateGroupCreateModal])
 
   const resetClassificationRuleEditor = useCallback(() => {
     setShowClassificationRuleModal(false)
@@ -2746,6 +2917,7 @@ function BackofficeApp() {
     setClassificationRuleSaving(false)
     setClassificationRuleTemplateId('')
     setClassificationRuleTemplateName('')
+    setClassificationRuleGroupName('')
     setClassificationRuleFieldOptions([])
     setClassificationRuleNodes([])
     setClassificationRuleActiveOverlay(null)
@@ -2788,6 +2960,7 @@ function BackofficeApp() {
 
       const fieldOptions = mapRuleFieldOptions(templateResponse.data.custom_model, templateResponse.data.field_transforms)
       setClassificationRuleTemplateName(templateResponse.data.name)
+      setClassificationRuleGroupName(templateResponse.data.group_name || '')
       setClassificationRuleFieldOptions(fieldOptions)
 
       if (!ruleResponse.ok && ruleResponse.status !== 404) {
@@ -2807,7 +2980,7 @@ function BackofficeApp() {
 
   const addClassificationRuleFolderNode = useCallback(() => {
     setClassificationRuleNodes((prev) => {
-      const folder = createRuleNodeDraft('folder', classificationRuleFieldOptions, 'use_existing')
+      const folder = createRuleNodeDraft('folder', classificationRuleFieldOptions, 'create_new')
       if (prev.length === 0) {
         return [folder, createRuleNodeDraft('file', classificationRuleFieldOptions, null)]
       }
@@ -3201,13 +3374,17 @@ function BackofficeApp() {
     }
 
     setClassificationRuleSuccess('Regla de clasificacion guardada.')
-    await loadTemplatesForTenant(true)
+    await loadTemplatesForTenant(true, { force: true })
     resetClassificationRuleEditor()
   }, [classificationRuleNodes, classificationRuleTemplateId, closeClassificationRuleEditor, loadTemplatesForTenant, resetClassificationRuleEditor, tenantId])
 
   const saveTemplateEditor = useCallback(async () => {
     if (!templateEditor.name.trim()) {
       setTemplateError('El nombre de la plantilla es obligatorio.')
+      return
+    }
+    if (!templateEditor.groupId.trim()) {
+      setTemplateError('Debes seleccionar un grupo para la plantilla.')
       return
     }
     if (!templateEditor.sourcePdfBlob) {
@@ -3240,6 +3417,7 @@ function BackofficeApp() {
 
     const payload = {
       name: templateEditor.name.trim(),
+      group_id: templateEditor.groupId.trim(),
       description: templateEditor.description.trim() || null,
       is_active: templateEditor.isActive,
       original_model: {
@@ -3280,12 +3458,12 @@ function BackofficeApp() {
     setTemplateSaving(false)
     if (!uploadResponse.ok) {
       setTemplateError(uploadResponse.error || 'La plantilla se guardó pero no se pudo asociar el PDF fuente.')
-      await loadTemplatesForTenant(true)
+      await loadTemplatesForTenant(true, { force: true })
       return
     }
 
     setTemplateSuccess(isNewTemplate ? 'Plantilla creada.' : 'Plantilla actualizada.')
-    await loadTemplatesForTenant(true)
+    await loadTemplatesForTenant(true, { force: true })
     setShowTemplateEditorModal(false)
     setEditingTemplateId(null)
     setTemplateEditor(createEmptyTemplateEditor())
@@ -3318,7 +3496,7 @@ function BackofficeApp() {
         setSelectedTemplateId('')
       }
       setTemplateSuccess('Plantilla eliminada.')
-      await loadTemplatesForTenant(true)
+      await loadTemplatesForTenant(true, { force: true })
     },
     [closeTemplateListActionMenu, editingTemplateId, loadTemplatesForTenant, resetTemplateEditor, selectedTemplateId, tenantId],
   )
@@ -3676,80 +3854,139 @@ function BackofficeApp() {
   const refreshConfigurationData = useCallback(() => {
     loadAutomationRules()
     void loadPendingFiles()
+    void loadTemplateGroupsForTenant()
     void loadTemplatesForTenant(true)
-  }, [loadAutomationRules, loadPendingFiles, loadTemplatesForTenant])
+  }, [loadAutomationRules, loadPendingFiles, loadTemplateGroupsForTenant, loadTemplatesForTenant])
 
-  const loadNominaFilesForFolder = useCallback(
+  const loadNominaFolderContents = useCallback(
     async (folderId: string) => {
       if (!folderId) {
+        setNominaFolders([])
         setNominaFiles([])
+        setNominaError('')
         return
       }
+
+      const cachedContents = nominaFolderContentsCacheRef.current[folderId]
+      if (cachedContents) {
+        setNominaError('')
+        setNominaFolders(cachedContents.folders)
+        setNominaFiles(cachedContents.files)
+        return
+      }
+
+      setNominaLoading(true)
       setNominaFilesLoading(true)
-      const filesRes = await listFilesInFolder(tenantId, folderId)
+      setNominaError('')
+      const contentsRes = await listFolderContents(tenantId, folderId)
+
+      if (contentsRes.ok && contentsRes.data) {
+        const folders = [...(contentsRes.data.folders ?? [])].sort(compareEmployeeFolders)
+        const files = contentsRes.data.files ?? []
+        nominaFolderContentsCacheRef.current[folderId] = { folders, files }
+        setNominaLoading(false)
+        setNominaFilesLoading(false)
+        setNominaFolders(folders)
+        setNominaFiles(files)
+        return
+      }
+
+      if (contentsRes.status === 404) {
+        const [foldersRes, filesRes] = await Promise.all([listPickerFolders(tenantId, folderId), listFilesInFolder(tenantId, folderId)])
+        setNominaLoading(false)
+        setNominaFilesLoading(false)
+
+        if (!foldersRes.ok || !filesRes.ok) {
+          setNominaError('No se pudieron listar las carpetas y archivos de esta ubicacion.')
+          setNominaFolders([])
+          setNominaFiles([])
+          return
+        }
+
+        const folders = [...(foldersRes.data?.folders ?? [])].sort(compareEmployeeFolders)
+        const files = (filesRes.data?.files ?? []).filter(
+          (item) => item.mimeType !== 'application/vnd.google-apps.folder',
+        )
+        nominaFolderContentsCacheRef.current[folderId] = { folders, files }
+        setNominaFolders(folders)
+        setNominaFiles(files)
+        return
+      }
+
+      setNominaLoading(false)
       setNominaFilesLoading(false)
-      if (!filesRes.ok) {
-        setNominaError('No se pudieron listar los archivos del empleado/año seleccionado.')
+      if (!contentsRes.ok || !contentsRes.data) {
+        setNominaError('No se pudieron listar las carpetas y archivos de esta ubicacion.')
+        setNominaFolders([])
         setNominaFiles([])
         return
       }
-      setNominaFiles(filesRes.data?.files ?? [])
     },
     [tenantId],
   )
 
-  const loadYearsForEmployee = useCallback(
-    async (employeeFolderId: string) => {
-      setNominaFiles([])
-      setEmployeeYears([])
-      setSelectedYearFolderId('')
-      if (!employeeFolderId) {
+  const loadNominaGroupRoot = useCallback(
+    async (groupId: string, groupsOverride?: TemplateGroup[]) => {
+      setNominaSelectedGroupId(groupId)
+      setNominaFolderStack([])
+      setFolderSearch('')
+      if (!groupId) {
+        setNominaFolders([])
+        setNominaFiles([])
+        setNominaError('')
         return
       }
-      const yearsRes = await listEmployeeYears(tenantId, employeeFolderId)
-      if (!yearsRes.ok) {
-        setNominaError('No se pudieron listar los años del empleado seleccionado.')
+      const groups = groupsOverride ?? templateGroups
+      const selectedGroup = groups.find((group) => group.group_id === groupId) || null
+      if (!selectedGroup?.drive_folder_id) {
+        setNominaFolders([])
+        setNominaFiles([])
+        setNominaError('El grupo seleccionado no tiene carpeta vinculada en Drive.')
         return
       }
-      const years = yearsRes.data?.folders ?? []
-      setEmployeeYears(years)
-      const defaultYear = years[0]?.id || ''
-      setSelectedYearFolderId(defaultYear)
-      if (defaultYear) {
-        await loadNominaFilesForFolder(defaultYear)
-      }
+      await loadNominaFolderContents(selectedGroup.drive_folder_id)
     },
-    [tenantId, loadNominaFilesForFolder],
+    [loadNominaFolderContents, templateGroups],
   )
 
-  const loadNominaEmployees = useCallback(async () => {
+  const loadNominaDocuments = useCallback(async () => {
     if (!isConnected) {
       setShowConnectRequiredModal(true)
       return
     }
-    setNominaLoading(true)
-    setNominaError('')
-    const res = await listEmployeeFolders(tenantId)
-    setNominaLoading(false)
-    if (!res.ok) {
-      setNominaError('No se pudieron listar empleados.')
-      setEmployees([])
-      return
-    }
-    const filtered = (res.data?.folders ?? []).filter((folder) => folder.name !== '#0 INPUT')
-    const sorted = [...filtered].sort(compareEmployeeFolders)
-    setEmployees(sorted)
-    if (sorted.length === 0) {
-      setSelectedEmployeeId('')
-      setEmployeeYears([])
-      setSelectedYearFolderId('')
+    const groups = await loadTemplateGroupsForTenant({ sync: true })
+    if (groups.length === 0) {
+      setNominaSelectedGroupId('')
+      setNominaFolderStack([])
+      setNominaFolders([])
       setNominaFiles([])
+      setNominaError('')
       return
     }
-    const selected = sorted[0].id
-    setSelectedEmployeeId(selected)
-    await loadYearsForEmployee(selected)
-  }, [isConnected, tenantId, loadYearsForEmployee])
+    const nextGroupId = groups.some((group) => group.group_id === nominaSelectedGroupId)
+      ? nominaSelectedGroupId
+      : groups[0]?.group_id || ''
+    await loadNominaGroupRoot(nextGroupId, groups)
+  }, [isConnected, loadNominaGroupRoot, loadTemplateGroupsForTenant, nominaSelectedGroupId])
+
+  const openNominaFolder = useCallback(
+    async (folder: DriveFolder) => {
+      setNominaFolderStack((prev) => [...prev, folder])
+      await loadNominaFolderContents(folder.id)
+    },
+    [loadNominaFolderContents],
+  )
+
+  const goBackNominaFolder = useCallback(async () => {
+    if (!nominaSelectedGroupId || nominaFolderStack.length === 0) {
+      return
+    }
+    const nextStack = nominaFolderStack.slice(0, -1)
+    setNominaFolderStack(nextStack)
+    const currentGroup = templateGroups.find((group) => group.group_id === nominaSelectedGroupId) || null
+    const nextFolderId = nextStack[nextStack.length - 1]?.id || currentGroup?.drive_folder_id || ''
+    await loadNominaFolderContents(nextFolderId)
+  }, [loadNominaFolderContents, nominaFolderStack, nominaSelectedGroupId, templateGroups])
 
   const refreshPendingFiles = useCallback(() => {
     void loadPendingFiles()
@@ -3772,14 +4009,8 @@ function BackofficeApp() {
         refreshPendingFiles()
         void loadTemplatesForTenant(false)
       }
-      if (section === 'nomina') {
-        void loadNominaEmployees()
-      }
-      if (section === 'configuracion') {
-        refreshConfigurationData()
-      }
     },
-    [isConnected, loadNominaEmployees, refreshConfigurationData, refreshPendingFiles],
+    [isConnected, loadTemplatesForTenant, refreshPendingFiles],
   )
 
   useEffect(() => {
@@ -3818,12 +4049,28 @@ function BackofficeApp() {
   }, [activeSection, isConnected, refreshConfigurationData])
 
   useEffect(() => {
+    if (activeSection !== 'nomina' || !isConnected) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadNominaDocuments()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+    // Re-run only when entering Documentos, changing tenant, or restoring connection.
+    // Avoid reloading while navigating folders or when templateGroups state refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, isConnected, tenantId])
+
+  useEffect(() => {
     if (activeSection !== 'configuracion' || !isConnected) {
       return
     }
 
     function refreshOnFocus() {
       void loadPendingFiles()
+      void loadTemplateGroupsForTenant()
       void loadTemplatesForTenant(true)
     }
 
@@ -3839,7 +4086,7 @@ function BackofficeApp() {
       window.removeEventListener('focus', refreshOnFocus)
       document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
-  }, [activeSection, isConnected, loadPendingFiles, loadTemplatesForTenant])
+  }, [activeSection, isConnected, loadPendingFiles, loadTemplateGroupsForTenant, loadTemplatesForTenant])
 
   useEffect(() => {
     const documentActiveTemplates = templates.filter(
@@ -3942,10 +4189,8 @@ function BackofficeApp() {
       setProcessError('Seleccioná al menos un archivo para procesar.')
       return
     }
-    if (!legacyProcessingFlowEnabled) {
-      setProcessingMode('template')
-    }
-    const nextProcessingMode = legacyProcessingFlowEnabled ? processingMode : 'template'
+    setProcessingMode('template')
+    const nextProcessingMode: ProcessingMode = 'template'
     if (
       nextProcessingMode === 'template' &&
       (!selectedTemplateId || !readyProcessTemplates.some((template) => template.template_id === selectedTemplateId))
@@ -4113,9 +4358,18 @@ function BackofficeApp() {
     () => templates.filter((template) => resolveTemplateMode(template) === 'document'),
     [templates],
   )
+  const classificationRuleGroupPathLabel = useMemo(
+    () => classificationRuleGroupName.trim() || '(grupo)',
+    [classificationRuleGroupName],
+  )
   const classificationRulePathPreview = useMemo(
-    () => buildRulePathPreview(classificationRuleNodes, classificationRuleFieldOptions),
-    [classificationRuleNodes, classificationRuleFieldOptions],
+    () =>
+      buildRulePathPreview(
+        classificationRuleNodes,
+        classificationRuleFieldOptions,
+        classificationRuleGroupPathLabel,
+      ),
+    [classificationRuleNodes, classificationRuleFieldOptions, classificationRuleGroupPathLabel],
   )
   const classificationRuleTemplateLabel = useMemo(
     () => classificationRuleTemplateName.trim() || 'N/D',
@@ -4191,14 +4445,29 @@ function BackofficeApp() {
     }
     return null
   }, [classificationRuleNodes])
-  const visibleEmployees = useMemo(() => {
-    const query = normalizeSearchText(collaboratorSearch)
-    const filtered = employees.filter((employee) => normalizeSearchText(employee.name).includes(query))
+  const selectedNominaGroup = useMemo(
+    () => templateGroups.find((group) => group.group_id === nominaSelectedGroupId) || null,
+    [nominaSelectedGroupId, templateGroups],
+  )
+  const nominaCurrentPath = useMemo(() => {
+    const parts = ['RECIBOX']
+    if (selectedNominaGroup?.name) {
+      parts.push(selectedNominaGroup.name)
+    }
+    for (const folder of nominaFolderStack) {
+      parts.push(folder.name)
+    }
+    return parts.join(' > ')
+  }, [nominaFolderStack, selectedNominaGroup])
+  const visibleNominaFolders = useMemo(() => {
+    const query = normalizeSearchText(folderSearch)
+    const filtered = nominaFolders.filter((folder) => normalizeSearchText(folder.name).includes(query))
     return [...filtered].sort((a, b) => {
       const cmp = compareEmployeeFolders(a, b)
-      return collaboratorSort === 'asc' ? cmp : -cmp
+      return folderSort === 'asc' ? cmp : -cmp
     })
-  }, [employees, collaboratorSearch, collaboratorSort])
+  }, [folderSearch, folderSort, nominaFolders])
+  const canGoBackNomina = nominaFolderStack.length > 0
   const topbarUserName = (authEmail?.split('@')[0] || 'Admin User').trim() || 'Admin User'
   const connectedEmail = (authEmail || 'Cuenta conectada').trim() || 'Cuenta conectada'
 
@@ -4313,9 +4582,9 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span translate="no" className="material-symbols-outlined notranslate">group</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">folder</span>
                 </span>
-                <span>Colaboradores</span>
+                <span>Documentos</span>
               </span>
             </button>
             <button
@@ -4398,9 +4667,9 @@ function BackofficeApp() {
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
-                  <span translate="no" className="material-symbols-outlined notranslate">group</span>
+                  <span translate="no" className="material-symbols-outlined notranslate">folder</span>
                 </span>
-                <span>Colaboradores</span>
+                <span>Documentos</span>
               </span>
             </button>
             <button
@@ -4834,10 +5103,11 @@ function BackofficeApp() {
                     <div className="settings-actions">
                       <button
                         type="button"
-                        className="modal-primary"
+                        className="modal-primary template-draft-btn"
                         onClick={() => void createTemplateDraft()}
                         disabled={(!selectedDraftFileId && (!templateLocalUploadEnabled || !uploadedTemplateFile)) || templateDraftLoading}
                       >
+                        {templateDraftLoading && <span className="spinner template-draft-btn-spinner" aria-hidden="true" />}
                         {templateDraftLoading ? 'Cargando PDF...' : 'Crear plantilla'}
                       </button>
                     </div>
@@ -4855,6 +5125,7 @@ function BackofficeApp() {
                             <div className="template-saved-main">
                               <strong>{template.name}</strong>
                               <span>
+                                Grupo {template.group_name || 'Sin grupo'} ·{' '}
                                 {template.is_active ? 'Activa' : 'Inactiva'} · {resolveRuleStatusLabel(template.rule_status)} · Actualizada{' '}
                                 {formatDateTime(template.updated_at)}
                               </span>
@@ -5017,21 +5288,43 @@ function BackofficeApp() {
 
         {activeSection === 'nomina' && isConnected && (
           <main className="content process-content nomina-screen">
-            <section className="section-page-header" aria-label="Encabezado de nomina">
-              <h2>Nomina y colaboradores</h2>
-              <p>Visualiza colaboradores y administra sus documentos por año.</p>
+            <section className="section-page-header" aria-label="Encabezado de documentos">
+              <h2>Documentos</h2>
+              <p>Explora grupos, carpetas y archivos almacenados dentro de RECIBOX.</p>
             </section>
             <div className="nomina-grid">
               <div className="nomina-left-col">
-                <section className="summary-card" aria-label="Colaboradores activos">
-                  <p>Colaboradores activos</p>
-                  <strong>{employees.length}</strong>
-                  <span>Total</span>
+                <section className="summary-card nomina-group-card" aria-label="Selector de grupo">
+                  <p>Grupo</p>
+                  <select
+                    className="nomina-group-select"
+                    value={nominaSelectedGroupId}
+                    onChange={(event) => {
+                      void loadNominaGroupRoot(event.target.value)
+                    }}
+                    disabled={templateGroupsLoading}
+                  >
+                    <option value="">
+                      {templateGroupsLoading
+                        ? 'Cargando grupos...'
+                        : templateGroups.length === 0
+                          ? 'Sin grupos disponibles'
+                          : 'Seleccionar grupo'}
+                    </option>
+                    {templateGroups.map((group) => (
+                      <option key={group.group_id} value={group.group_id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </select>
+                  {templateGroupsError && <span className="summary-card-error">{templateGroupsError}</span>}
                 </section>
 
-                <section className="pending-card" aria-label="Tabla de colaboradores">
+                <section className="pending-card" aria-label="Tabla de carpetas">
                   <div className="pending-header">
-                    <h3>Colaboradores</h3>
+                    <div className="nomina-panel-heading">
+                      <h3>Carpetas</h3>
+                    </div>
                   </div>
                   <div className="collaborator-toolbar">
                     <div className="collaborator-search-wrap">
@@ -5041,18 +5334,18 @@ function BackofficeApp() {
                       <input
                         className="collaborator-search"
                         type="text"
-                        value={collaboratorSearch}
-                        onChange={(event) => setCollaboratorSearch(event.target.value)}
-                        placeholder="Buscar colaborador..."
+                        value={folderSearch}
+                        onChange={(event) => setFolderSearch(event.target.value)}
+                        placeholder="Buscar carpeta..."
                       />
                     </div>
                     <button
                       type="button"
                       className="sort-btn"
-                      onClick={() => setCollaboratorSort((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-                      title={collaboratorSort === 'asc' ? 'Orden ascendente' : 'Orden descendente'}
+                      onClick={() => setFolderSort((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                      title={folderSort === 'asc' ? 'Orden ascendente' : 'Orden descendente'}
                     >
-                      {collaboratorSort === 'asc' ? 'A-Z' : 'Z-A'}
+                      {folderSort === 'asc' ? 'A-Z' : 'Z-A'}
                     </button>
                   </div>
                   <div className="pending-table-wrapper">
@@ -5060,65 +5353,51 @@ function BackofficeApp() {
                       <tbody>
                         {nominaLoading && (
                           <tr>
-                            <td>Cargando colaboradores...</td>
+                            <td>Cargando carpetas...</td>
                           </tr>
                         )}
-                        {!nominaLoading && employees.length === 0 && !nominaError && (
+                        {!nominaLoading && !nominaSelectedGroupId && !nominaError && (
                           <tr>
-                            <td>Aun no existen documentos de colaboradores</td>
+                            <td>Selecciona un grupo para ver sus carpetas.</td>
                           </tr>
                         )}
-                        {!nominaLoading && employees.length > 0 && visibleEmployees.length === 0 && !nominaError && (
+                        {!nominaLoading && nominaSelectedGroupId && nominaFolders.length === 0 && !nominaError && (
                           <tr>
-                            <td>Sin resultados para la búsqueda</td>
+                            <td>No hay archivos en esta ubicacion.</td>
+                          </tr>
+                        )}
+                        {!nominaLoading && nominaFolders.length > 0 && visibleNominaFolders.length === 0 && !nominaError && (
+                          <tr>
+                            <td>Sin resultados para la busqueda</td>
                           </tr>
                         )}
                         {!nominaLoading &&
-                          visibleEmployees.map((employee) => (
+                          visibleNominaFolders.map((folder) => (
                             <tr
-                              key={employee.id}
-                              className={employee.id === selectedEmployeeId ? 'selected-row' : ''}
+                              key={folder.id}
                               onClick={() => {
-                                setSelectedEmployeeId(employee.id)
-                                void loadYearsForEmployee(employee.id)
+                                void openNominaFolder(folder)
                               }}
                             >
-                              <td title={employee.name}>{employee.name}</td>
+                              <td title={folder.name}>{folder.name}</td>
                             </tr>
                           ))}
                       </tbody>
                     </table>
                   </div>
                   <div className="process-cta-row">
-                    <button type="button" className="add-files-btn" disabled>
-                      Nuevo colaborador
+                    <button type="button" className="add-files-btn" onClick={() => void goBackNominaFolder()} disabled={!canGoBackNomina}>
+                      {canGoBackNomina ? 'Volver' : 'Agregar'}
                     </button>
                   </div>
                 </section>
               </div>
 
-              <section className="jobs-card" aria-label="Archivos por colaborador y año">
+              <section className="jobs-card" aria-label="Archivos">
                 <div className="pending-header">
-                  <h3>Documentos del colaborador</h3>
-                  <div className="year-filter">
-                    <span>Año</span>
-                    <select
-                      className="year-select"
-                      value={selectedYearFolderId}
-                      onChange={(event) => {
-                        const yearId = event.target.value
-                        setSelectedYearFolderId(yearId)
-                        void loadNominaFilesForFolder(yearId)
-                      }}
-                      disabled={employeeYears.length === 0}
-                    >
-                      {employeeYears.length === 0 && <option value="">Sin años</option>}
-                      {employeeYears.map((yearFolder) => (
-                        <option key={yearFolder.id} value={yearFolder.id}>
-                          {yearFolder.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="nomina-panel-heading">
+                    <h3>Archivos</h3>
+                    <span>{selectedNominaGroup ? nominaCurrentPath : 'Sin grupo seleccionado'}</span>
                   </div>
                 </div>
                 <div className="pending-table-wrapper">
@@ -5130,12 +5409,17 @@ function BackofficeApp() {
                     <tbody>
                       {nominaFilesLoading && (
                         <tr>
-                          <td colSpan={3}>Cargando archivos...</td>
+                          <td colSpan={2}>Cargando archivos...</td>
                         </tr>
                       )}
-                      {!nominaFilesLoading && nominaFiles.length === 0 && (
+                      {!nominaFilesLoading && !nominaSelectedGroupId && (
                         <tr>
-                          <td colSpan={3}>Sin archivos para el colaborador/año seleccionado.</td>
+                          <td colSpan={2}>Selecciona un grupo para ver archivos.</td>
+                        </tr>
+                      )}
+                      {!nominaFilesLoading && nominaSelectedGroupId && nominaFiles.length === 0 && (
+                        <tr>
+                          <td colSpan={2}>Sin archivos en esta ubicacion.</td>
                         </tr>
                       )}
                       {!nominaFilesLoading &&
@@ -5453,9 +5737,12 @@ function BackofficeApp() {
                   value={processingMode}
                   onChange={(event) => changeProcessingMode(event.target.value as ProcessingMode)}
                 >
-                  <option value="default">Flujo actual</option>
+                  <option value="default">Flujo legado</option>
                   <option value="template">Usar plantilla</option>
                 </select>
+                <p className="settings-hint">
+                  El flujo legado no usa grupos ni la estructura nueva `RECIBOX &gt; Grupo &gt; ...`.
+                </p>
               </div>
             )}
             {(!legacyProcessingFlowEnabled || processingMode === 'template') && (
@@ -5477,6 +5764,7 @@ function BackofficeApp() {
                         disabled={template.rule_status !== 'ready'}
                       >
                         {template.name}
+                        {template.group_name ? ` · ${template.group_name}` : ''}
                         {template.rule_status === 'ready' ? '' : ' (regla incompleta)'}
                       </option>
                     ))}
@@ -5531,6 +5819,22 @@ function BackofficeApp() {
                 onChange={(event) => setTemplateEditor((prev) => ({ ...prev, name: event.target.value }))}
                 placeholder={editingTemplateId ? 'Editar plantilla' : 'Nueva plantilla'}
               />
+              <div className="template-group-select-wrap">
+                <select
+                  className="year-select template-group-select"
+                  value={templateEditor.groupId || ''}
+                  onChange={(event) => handleTemplateGroupChange(event.target.value)}
+                  disabled={templateSaving || templateGroupsLoading}
+                >
+                  <option value="">{templateGroupsLoading ? 'Cargando grupos...' : 'Seleccionar grupo'}</option>
+                  {templateGroups.map((group) => (
+                    <option key={group.group_id} value={group.group_id}>
+                      {group.name}
+                    </option>
+                  ))}
+                  <option value="__create_group__">+ Crear grupo...</option>
+                </select>
+              </div>
               <div className="template-editor-header-actions">
                 <button type="button" className="modal-secondary" onClick={resetTemplateEditor} disabled={templateSaving}>
                   Cancelar
@@ -5539,61 +5843,70 @@ function BackofficeApp() {
                   type="button"
                   className="modal-primary"
                   onClick={() => void saveTemplateEditor()}
-                  disabled={templateSaving || !templateEditor.name.trim()}
+                  disabled={templateSaving || !templateEditor.name.trim() || !templateEditor.groupId.trim()}
                 >
                   {templateSaving ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </div>
+            {(templateGroupsError || (!templateGroupsLoading && templateGroups.length === 0)) && (
+              <p className="settings-preview template-group-helper">
+                {templateGroupsError || 'No hay grupos creados. Crea uno para poder guardar la plantilla.'}
+              </p>
+            )}
             <p className="settings-preview">
               Archivo base: {templateEditor.sampleFileName || 'N/D'}
             </p>
 
             <div className="template-editor-layout">
               <div className="template-canvas-panel">
-                <div
-                  ref={templateCanvasRef}
-                  className="template-canvas-wrapper"
-                  onMouseDown={startTemplateDrawing}
-                  onMouseMove={moveTemplateDrawing}
-                  onMouseUp={endTemplateDrawing}
-                  onMouseLeave={endTemplateDrawing}
-                >
+                <div className="template-canvas-wrapper">
                   {templateEditor.previewImageDataUrl && (
-                    <img src={templateEditor.previewImageDataUrl} className="template-canvas-image" alt="PDF de plantilla" />
+                    <div
+                      ref={templateCanvasRef}
+                      className="template-canvas-stage"
+                      onMouseDown={startTemplateDrawing}
+                      onMouseMove={moveTemplateDrawing}
+                      onMouseUp={endTemplateDrawing}
+                      onMouseLeave={endTemplateDrawing}
+                    >
+                      <img
+                        src={templateEditor.previewImageDataUrl}
+                        className="template-canvas-image"
+                        alt="PDF de plantilla"
+                      />
+                      <div className="template-canvas-overlay">
+                        {templateEditor.fields.map((field, index) => (
+                          <div
+                            key={field.id}
+                            className={`template-zone ${templateHoveredFieldId === field.id ? 'template-zone-active' : ''}`}
+                            style={{
+                              left: `${field.rect.x * 100}%`,
+                              top: `${field.rect.y * 100}%`,
+                              width: `${field.rect.w * 100}%`,
+                              height: `${field.rect.h * 100}%`,
+                            }}
+                            onMouseEnter={() => setTemplateHoveredFieldId(field.id)}
+                            onMouseLeave={() => setTemplateHoveredFieldId((prev) => (prev === field.id ? null : prev))}
+                            title={`${field.name} (${index + 1})`}
+                          />
+                        ))}
+                        {templatePendingRect && (
+                          <div
+                            className="template-zone template-zone-pending"
+                            style={{
+                              left: `${templatePendingRect.x * 100}%`,
+                              top: `${templatePendingRect.y * 100}%`,
+                              width: `${templatePendingRect.w * 100}%`,
+                              height: `${templatePendingRect.h * 100}%`,
+                            }}
+                          />
+                        )}
+                      </div>
+                    </div>
                   )}
                   {!templateEditor.previewImageDataUrl && (
                     <p className="template-canvas-empty">No se pudo cargar la vista previa del PDF.</p>
-                  )}
-                  {templateEditor.previewImageDataUrl && (
-                    <div className="template-canvas-overlay">
-                      {templateEditor.fields.map((field, index) => (
-                        <div
-                          key={field.id}
-                          className={`template-zone ${templateHoveredFieldId === field.id ? 'template-zone-active' : ''}`}
-                          style={{
-                            left: `${field.rect.x * 100}%`,
-                            top: `${field.rect.y * 100}%`,
-                            width: `${field.rect.w * 100}%`,
-                            height: `${field.rect.h * 100}%`,
-                          }}
-                          onMouseEnter={() => setTemplateHoveredFieldId(field.id)}
-                          onMouseLeave={() => setTemplateHoveredFieldId((prev) => (prev === field.id ? null : prev))}
-                          title={`${field.name} (${index + 1})`}
-                        />
-                      ))}
-                      {templatePendingRect && (
-                        <div
-                          className="template-zone template-zone-pending"
-                          style={{
-                            left: `${templatePendingRect.x * 100}%`,
-                            top: `${templatePendingRect.y * 100}%`,
-                            width: `${templatePendingRect.w * 100}%`,
-                            height: `${templatePendingRect.h * 100}%`,
-                          }}
-                        />
-                      )}
-                    </div>
                   )}
                 </div>
                 <p className="settings-preview">
@@ -5714,6 +6027,70 @@ function BackofficeApp() {
 
             {templateError && <p className="oauth-feedback error">{templateError}</p>}
           </div>
+          {showTemplateGroupCreateModal && (
+            <div
+              className="template-group-create-overlay"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Crear grupo"
+              onClick={() => {
+                if (templateGroupSaving) {
+                  return
+                }
+                setShowTemplateGroupCreateModal(false)
+                setTemplateGroupDraftName('')
+                setTemplateGroupCreateError('')
+              }}
+            >
+              <div className="template-group-create-card" onClick={(event) => event.stopPropagation()}>
+                <h3>Crear grupo</h3>
+                <p>Los archivos procesados se clasifican segun las plantillas agrupadas.</p>
+                <input
+                  className="settings-input"
+                  value={templateGroupDraftName}
+                  onChange={(event) => setTemplateGroupDraftName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void createTemplateGroupFromModal()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setShowTemplateGroupCreateModal(false)
+                      setTemplateGroupDraftName('')
+                      setTemplateGroupCreateError('')
+                    }
+                  }}
+                  placeholder="Nombre del grupo"
+                  autoFocus
+                  disabled={templateGroupSaving}
+                />
+                {templateGroupCreateError && <p className="oauth-feedback error">{templateGroupCreateError}</p>}
+                <div className="template-group-create-actions">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={() => {
+                      setShowTemplateGroupCreateModal(false)
+                      setTemplateGroupDraftName('')
+                      setTemplateGroupCreateError('')
+                    }}
+                    disabled={templateGroupSaving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() => void createTemplateGroupFromModal()}
+                    disabled={templateGroupSaving}
+                  >
+                    {templateGroupSaving ? 'Guardando...' : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -5811,7 +6188,7 @@ function BackofficeApp() {
 
       {showClassificationRuleModal && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center overflow-y-auto bg-slate-900/35 p-2.5 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Editor de regla de clasificacion">
-          <div className="flex h-[min(90vh,860px)] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex h-[min(92vh,900px)] w-full max-w-[1280px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 md:px-5">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#3a5f0b] text-white">
@@ -5933,6 +6310,8 @@ function BackofficeApp() {
                         </span>
                         <Folder className="h-4 w-4 text-slate-700" />
                         <strong className="text-[13px] text-slate-800">RECIBOX</strong>
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="text-[13px] font-semibold text-slate-600">{classificationRuleGroupPathLabel}</span>
                       </div>
 
                       <div className="space-y-4">
@@ -6094,10 +6473,10 @@ function BackofficeApp() {
             {classificationRuleError && <p className="mx-4 mt-3 text-sm font-semibold text-red-600 md:mx-5">{classificationRuleError}</p>}
             {classificationRuleSuccess && <p className="mx-4 mt-3 text-sm font-semibold text-green-700 md:mx-5">{classificationRuleSuccess}</p>}
 
-            <footer className="flex flex-col gap-3 border-t border-slate-200 bg-slate-100/90 px-4 py-3 md:flex-row md:items-end md:justify-between md:px-5">
+            <footer className="grid grid-cols-1 gap-3 border-t border-slate-200 bg-slate-100/90 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:gap-5 md:px-5">
               <div className="min-w-0">
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-slate-600">Vista previa del resultado</p>
-                <div className="mt-1.5 inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] font-semibold text-slate-700">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-slate-600">Vista previa</p>
+                <div className="mt-1.5 flex w-full flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-[13px] font-semibold text-slate-700">
                   <span>RECIBOX</span>
                   {classificationRulePathPreview.folders.map((folder, index) => (
                     <span key={`preview-folder-${index}`} className="inline-flex items-center gap-1">
@@ -6113,7 +6492,7 @@ function BackofficeApp() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5">
+              <div className="flex shrink-0 items-center justify-end gap-2.5">
                 <button
                   type="button"
                   className="inline-flex h-10 items-center rounded-lg px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-200/70 disabled:cursor-not-allowed disabled:opacity-55"

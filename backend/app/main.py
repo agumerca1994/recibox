@@ -9,6 +9,7 @@ from app.services.templates.store import (
 )
 from app.services.templates.classification_rules import init_classification_rules_schema
 from app.services.templates.field_transforms import init_template_field_transforms_schema
+from app.services.templates.groups import init_template_groups_schema
 from app.services.process_runs import init_process_runs_schema
 from app.services.tenants.user_tenants import init_user_tenants_schema
 from app.services.tenants.user_profiles import init_user_profiles_schema
@@ -25,6 +26,7 @@ def startup_events():
     if settings.postgres_url:
         init_user_tenants_schema()
         init_user_profiles_schema()
+        init_template_groups_schema()
         init_document_templates_schema()
         init_classification_rules_schema()
         init_template_field_transforms_schema()

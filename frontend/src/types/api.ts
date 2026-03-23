@@ -37,6 +37,14 @@ export type DriveFoldersResponse = {
   folders: DriveFolder[]
 }
 
+export type DriveFolderContentsResponse = {
+  folder_id: string
+  folders_count: number
+  files_count: number
+  folders: DriveFolder[]
+  files: DriveFile[]
+}
+
 export type PickerFoldersResponse = DriveFoldersResponse & {
   parent_id: string
 }
@@ -322,14 +330,38 @@ export type ClassificationRulePayload = {
   }>
 }
 
+export type TemplateGroup = {
+  group_id: string
+  tenant_id: string
+  name: string
+  drive_folder_id: string
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type TemplateGroupListResponse = {
+  tenant_id: string
+  count: number
+  groups: TemplateGroup[]
+}
+
+export type TemplateGroupCreateResponse = {
+  status: string
+  tenant_id: string
+  group: TemplateGroup
+}
+
 export type TemplateSummary = {
   template_id: string
   tenant_id: string
   name: string
+  group_id?: string | null
+  group_name?: string | null
   description?: string | null
   is_active: boolean
   template_mode?: TemplateMode
   sample_file_metadata?: Record<string, unknown> | null
+  drive_folder_id?: string | null
   field_transforms?: TemplateFieldTransformGroup[]
   rule_status?: RuleStatus
   has_rule?: boolean
