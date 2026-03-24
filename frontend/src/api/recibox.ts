@@ -12,6 +12,13 @@ import type {
   ProcessRunListResponse,
   PickerFoldersResponse,
   ProcessingPreferences,
+  ReportColumn,
+  ReportLayout,
+  ReportLayoutListResponse,
+  ReportRunListResponse,
+  ReportRunRecord,
+  ReportSelectionResolveResponse,
+  ReportOutputFormat,
   ReciboxStructureCheckResponse,
   ReciboxStructureCreateResponse,
   RegisterAccountPayload,
@@ -47,6 +54,25 @@ export type TemplateUpsertPayload = {
   custom_model: Record<string, unknown>
   sample_file_metadata?: Record<string, unknown> | null
   field_transforms?: TemplateFieldTransformGroup[]
+}
+
+export type ReportLayoutUpsertPayload = {
+  name: string
+  description?: string | null
+  default_group_id: string
+  default_output_format: ReportOutputFormat
+  csv_delimiter?: ';' | ','
+  columns: ReportColumn[]
+  is_active?: boolean
+}
+
+export type ReportRunCreatePayload = {
+  report_id?: string | null
+  group_id: string
+  file_ids: string[]
+  output_format: ReportOutputFormat
+  csv_delimiter?: ';' | ','
+  columns: ReportColumn[]
 }
 
 export function getHealth() {
@@ -250,6 +276,127 @@ export function buildTemplateSourcePdfUrl(tenantId: string, templateId: string) 
 
 export function buildDrivePdfDownloadUrl(tenantId: string, fileId: string) {
   return buildApiUrl(`/drive/files/${encodeURIComponent(fileId)}/download?${queryTenant(tenantId)}`)
+}
+
+export function listReportLayouts(tenantId: string, includeInactive = true) {
+  return apiRequest<ReportLayoutListResponse>(
+    `/tenants/${encodeURIComponent(tenantId)}/reports?include_inactive=${encodeURIComponent(String(includeInactive))}`,
+  )
+}
+
+export function getReportLayout(tenantId: string, reportId: string) {
+  return apiRequest<ReportLayout>(`/tenants/${encodeURIComponent(tenantId)}/reports/${encodeURIComponent(reportId)}`)
+}
+
+export function createReportLayout(tenantId: string, payload: ReportLayoutUpsertPayload) {
+  return apiRequest<{ status: string; tenant_id: string; report: ReportLayout }>(
+    `/tenants/${encodeURIComponent(tenantId)}/reports`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export function updateReportLayout(tenantId: string, reportId: string, payload: ReportLayoutUpsertPayload) {
+  return apiRequest<{ status: string; tenant_id: string; report: ReportLayout }>(
+    `/tenants/${encodeURIComponent(tenantId)}/reports/${encodeURIComponent(reportId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export function deleteReportLayout(tenantId: string, reportId: string) {
+  return apiRequest<{ status: string; tenant_id: string; report_id: string; deleted: boolean }>(
+    `/tenants/${encodeURIComponent(tenantId)}/reports/${encodeURIComponent(reportId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
+
+export function resolveReportSelection(
+  tenantId: string,
+  payload: {
+    group_id: string
+    file_ids: string[]
+  },
+) {
+  return apiRequest<ReportSelectionResolveResponse>(`/tenants/${encodeURIComponent(tenantId)}/reports/selection/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function bindReportFileTemplate(
+  tenantId: string,
+  fileId: string,
+  payload: {
+    group_id: string
+    template_id: string
+  },
+) {
+  return apiRequest<{
+    status: string
+    tenant_id: string
+    binding: {
+      file_id: string
+      template_id: string
+      template_name: string
+      group_id: string
+      app_properties: Record<string, string>
+    }
+  }>(`/tenants/${encodeURIComponent(tenantId)}/reports/files/${encodeURIComponent(fileId)}/template-binding`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function listReportRuns(tenantId: string, limit = 20) {
+  return apiRequest<ReportRunListResponse>(
+    `/tenants/${encodeURIComponent(tenantId)}/report-runs?limit=${encodeURIComponent(String(limit))}`,
+  )
+}
+
+export function createReportRun(tenantId: string, payload: ReportRunCreatePayload) {
+  return apiRequest<{ status: string; tenant_id: string; report_run_id: string; job_id: string }>(
+    `/tenants/${encodeURIComponent(tenantId)}/report-runs`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export function getReportRun(tenantId: string, reportRunId: string) {
+  return apiRequest<ReportRunRecord>(
+    `/tenants/${encodeURIComponent(tenantId)}/report-runs/${encodeURIComponent(reportRunId)}`,
+  )
+}
+
+export function reprocessReportRun(
+  tenantId: string,
+  reportRunId: string,
+  payload?: {
+    output_format?: ReportOutputFormat
+    csv_delimiter?: ';' | ','
+  },
+) {
+  return apiRequest<{ status: string; tenant_id: string; report_run_id: string; job_id: string; source_report_run_id: string }>(
+    `/tenants/${encodeURIComponent(tenantId)}/report-runs/${encodeURIComponent(reportRunId)}/reprocess`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    },
+  )
+}
+
+export function buildReportRunDownloadUrl(tenantId: string, reportRunId: string) {
+  return buildApiUrl(
+    `/tenants/${encodeURIComponent(tenantId)}/report-runs/${encodeURIComponent(reportRunId)}/download`,
+  )
 }
 
 export function registerAccount(payload: RegisterAccountPayload, idToken: string) {

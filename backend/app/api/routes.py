@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from pathlib import Path
 import json
 from urllib.parse import quote
+import uuid
 from pydantic import BaseModel
 from rq.command import send_stop_job_command
 from rq.job import Job
@@ -16,6 +17,24 @@ from app.services.process_runs import (
     serialize_job_status,
     serialize_process_run,
     upsert_process_run,
+)
+from app.services.reports import (
+    bind_report_file_template,
+    create_report_layout,
+    create_report_run,
+    delete_report_layout,
+    get_report_layout,
+    get_report_run,
+    list_recent_report_runs,
+    list_report_layouts,
+    normalize_report_run_options,
+    parse_report_columns_payload,
+    resolve_report_selection,
+    run_report_flow,
+    serialize_report_layout,
+    serialize_report_run,
+    sync_report_run,
+    update_report_layout,
 )
 from app.services.templates.builder import build_template_draft_for_file
 from app.services.templates.drive_folders import ensure_template_group_drive_folder
@@ -183,6 +202,50 @@ class RegisterUserPayload(BaseModel):
     email: str | None = None
 
 
+class ReportColumnPayload(BaseModel):
+    column_id: str | None = None
+    label: str
+    value_type: str = "string"
+    source_type: str
+    system_key: str | None = None
+    template_mappings: dict[str, str] | None = None
+    order: int | None = None
+
+
+class ReportLayoutPayload(BaseModel):
+    name: str
+    description: str | None = None
+    default_group_id: str
+    default_output_format: str = "csv"
+    csv_delimiter: str = ";"
+    columns: list[ReportColumnPayload]
+    is_active: bool = True
+
+
+class ReportSelectionResolvePayload(BaseModel):
+    group_id: str
+    file_ids: list[str]
+
+
+class ReportFileTemplateBindingPayload(BaseModel):
+    group_id: str
+    template_id: str
+
+
+class ReportRunCreatePayload(BaseModel):
+    report_id: str | None = None
+    group_id: str
+    file_ids: list[str]
+    output_format: str = "csv"
+    csv_delimiter: str = ";"
+    columns: list[ReportColumnPayload]
+
+
+class ReportRunReprocessPayload(BaseModel):
+    output_format: str | None = None
+    csv_delimiter: str | None = None
+
+
 def _ensure_tenant_active(tenant_id: str) -> None:
     redis_conn = get_redis()
     if is_tenant_disabled(redis_conn, tenant_id):
@@ -198,6 +261,11 @@ def _resolve_drive_config_or_400(tenant_id: str):
         return resolve_tenant_drive_config(redis_conn, tenant_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _ensure_postgres_enabled() -> None:
+    if not settings.postgres_url:
+        raise HTTPException(status_code=503, detail="Postgres is required for reports")
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
@@ -323,6 +391,10 @@ def _serialize_template_detail_payload(
         }
     )
     return payload
+
+
+def _serialize_report_columns_payload(columns: list[ReportColumnPayload]) -> list[dict]:
+    return [item.model_dump() for item in columns]
 
 
 @router.get("/health")
@@ -483,12 +555,14 @@ async def list_files_in_folder_endpoint(
     tenant_id: str = Query("default"),
 ):
     _ensure_tenant_active(tenant_id)
+    compact_fields = "nextPageToken, files(id, name, mimeType)"
     try:
         files = list(
             gdrive.list_files_in_folder(
                 folder_id,
                 tenant_id=tenant_id,
                 query_extra="mimeType != 'application/vnd.google-apps.folder'",
+                fields=compact_fields,
             )
         )
     except Exception as exc:
@@ -507,8 +581,15 @@ async def list_folder_contents_endpoint(
 ):
     _ensure_tenant_active(tenant_id)
     folder_mime = "application/vnd.google-apps.folder"
+    compact_fields = "nextPageToken, files(id, name, mimeType)"
     try:
-        items = list(gdrive.list_files_in_folder(folder_id, tenant_id=tenant_id))
+        items = list(
+            gdrive.list_files_in_folder(
+                folder_id,
+                tenant_id=tenant_id,
+                fields=compact_fields,
+            )
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
 
@@ -531,8 +612,16 @@ async def list_picker_folders(
 ):
     _ensure_tenant_active(tenant_id)
     query = "mimeType = 'application/vnd.google-apps.folder'"
+    compact_fields = "nextPageToken, files(id, name, mimeType)"
     try:
-        folders = list(gdrive.list_files_in_folder(parent_id, query_extra=query, tenant_id=tenant_id))
+        folders = list(
+            gdrive.list_files_in_folder(
+                parent_id,
+                query_extra=query,
+                tenant_id=tenant_id,
+                fields=compact_fields,
+            )
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
 
@@ -922,6 +1011,351 @@ async def get_process_runs(tenant_id: str = Query("default"), limit: int = Query
         return {"count": 0, "items": []}
     items = [serialize_process_run(record) for record in list_recent_process_runs(tenant_id, limit=limit)]
     return {"count": len(items), "items": items}
+
+
+@router.post("/tenants/{tenant_id}/reports/selection/resolve")
+async def resolve_report_selection_endpoint(tenant_id: str, payload: ReportSelectionResolvePayload):
+    _ensure_postgres_enabled()
+    _ensure_tenant_active(tenant_id)
+    try:
+        resolved = resolve_report_selection(
+            tenant_id=tenant_id,
+            group_id=payload.group_id,
+            file_ids=payload.file_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Report selection resolve failed: {exc}")
+    return {"status": "ok", "tenant_id": tenant_id, **resolved}
+
+
+@router.put("/tenants/{tenant_id}/reports/files/{file_id}/template-binding")
+async def bind_report_file_template_endpoint(
+    tenant_id: str,
+    file_id: str,
+    payload: ReportFileTemplateBindingPayload,
+):
+    _ensure_postgres_enabled()
+    _ensure_tenant_active(tenant_id)
+    try:
+        result = bind_report_file_template(
+            tenant_id=tenant_id,
+            group_id=payload.group_id,
+            file_id=file_id,
+            template_id=payload.template_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Template binding failed: {exc}")
+    return {"status": "ok", "tenant_id": tenant_id, "binding": result}
+
+
+@router.get("/tenants/{tenant_id}/reports")
+async def get_report_layouts_endpoint(tenant_id: str, include_inactive: bool = Query(True)):
+    _ensure_postgres_enabled()
+    try:
+        layouts = list_report_layouts(tenant_id=tenant_id, include_inactive=include_inactive)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List report layouts failed: {exc}")
+    return {
+        "tenant_id": tenant_id,
+        "count": len(layouts),
+        "reports": [serialize_report_layout(item) for item in layouts],
+    }
+
+
+@router.post("/tenants/{tenant_id}/reports")
+async def post_report_layout(tenant_id: str, payload: ReportLayoutPayload):
+    _ensure_postgres_enabled()
+    if not get_template_group(tenant_id=tenant_id, group_id=payload.default_group_id):
+        raise HTTPException(status_code=400, detail="Template group not found")
+    try:
+        layout = create_report_layout(
+            tenant_id=tenant_id,
+            name=payload.name,
+            description=payload.description,
+            default_group_id=payload.default_group_id,
+            default_output_format=payload.default_output_format,
+            csv_delimiter=payload.csv_delimiter,
+            columns=_serialize_report_columns_payload(payload.columns),
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Create report layout failed: {exc}")
+    return {"status": "ok", "tenant_id": tenant_id, "report": serialize_report_layout(layout)}
+
+
+@router.get("/tenants/{tenant_id}/reports/{report_id}")
+async def get_report_layout_endpoint(tenant_id: str, report_id: str):
+    _ensure_postgres_enabled()
+    try:
+        layout = get_report_layout(tenant_id=tenant_id, report_id=report_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get report layout failed: {exc}")
+    if layout is None:
+        raise HTTPException(status_code=404, detail="Report layout not found")
+    return serialize_report_layout(layout)
+
+
+@router.put("/tenants/{tenant_id}/reports/{report_id}")
+async def put_report_layout_endpoint(tenant_id: str, report_id: str, payload: ReportLayoutPayload):
+    _ensure_postgres_enabled()
+    if not get_template_group(tenant_id=tenant_id, group_id=payload.default_group_id):
+        raise HTTPException(status_code=400, detail="Template group not found")
+    try:
+        layout = update_report_layout(
+            tenant_id=tenant_id,
+            report_id=report_id,
+            name=payload.name,
+            description=payload.description,
+            default_group_id=payload.default_group_id,
+            default_output_format=payload.default_output_format,
+            csv_delimiter=payload.csv_delimiter,
+            columns=_serialize_report_columns_payload(payload.columns),
+            is_active=payload.is_active,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Update report layout failed: {exc}")
+    if layout is None:
+        raise HTTPException(status_code=404, detail="Report layout not found")
+    return {"status": "ok", "tenant_id": tenant_id, "report": serialize_report_layout(layout)}
+
+
+@router.delete("/tenants/{tenant_id}/reports/{report_id}")
+async def delete_report_layout_endpoint(tenant_id: str, report_id: str):
+    _ensure_postgres_enabled()
+    try:
+        deleted = delete_report_layout(tenant_id=tenant_id, report_id=report_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Delete report layout failed: {exc}")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Report layout not found")
+    return {"status": "ok", "tenant_id": tenant_id, "report_id": report_id, "deleted": True}
+
+
+@router.get("/tenants/{tenant_id}/report-runs")
+async def get_report_runs_endpoint(tenant_id: str, limit: int = Query(20, ge=1, le=50)):
+    _ensure_postgres_enabled()
+    try:
+        runs = list_recent_report_runs(tenant_id=tenant_id, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List report runs failed: {exc}")
+    return {
+        "tenant_id": tenant_id,
+        "count": len(runs),
+        "items": [serialize_report_run(item) for item in runs],
+    }
+
+
+@router.post("/tenants/{tenant_id}/report-runs")
+async def post_report_run_endpoint(tenant_id: str, payload: ReportRunCreatePayload):
+    _ensure_postgres_enabled()
+    _ensure_tenant_active(tenant_id)
+
+    if payload.report_id:
+        layout = get_report_layout(tenant_id=tenant_id, report_id=payload.report_id)
+        if layout is None:
+            raise HTTPException(status_code=404, detail="Report layout not found")
+        if str(layout.default_group_id or "").strip() != str(payload.group_id or "").strip():
+            raise HTTPException(status_code=400, detail="Selected files must belong to the layout group")
+
+    try:
+        resolved = resolve_report_selection(
+            tenant_id=tenant_id,
+            group_id=payload.group_id,
+            file_ids=payload.file_ids,
+        )
+        normalized_output_format, normalized_csv_delimiter = normalize_report_run_options(
+            output_format=payload.output_format,
+            csv_delimiter=payload.csv_delimiter,
+        )
+        files = resolved.get("files") or []
+        invalid = [item for item in files if item.get("template_binding_status") != "ready"]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail="Selection contains files without valid template binding",
+            )
+        required_template_ids = {
+            str(item.get("template_id", "")).strip()
+            for item in files
+            if str(item.get("template_id", "")).strip()
+        }
+        normalized_columns = parse_report_columns_payload(
+            _serialize_report_columns_payload(payload.columns),
+            required_template_ids=required_template_ids,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Prepare report run failed: {exc}")
+
+    q = get_queue()
+    report_run_id = str(uuid.uuid4())
+    job = q.enqueue(
+        run_report_flow,
+        report_run_id=report_run_id,
+        tenant_id=tenant_id,
+        group_id=payload.group_id,
+        file_ids=[str(item.get("file_id")) for item in files],
+        output_format=normalized_output_format,
+        csv_delimiter=normalized_csv_delimiter,
+        columns=normalized_columns,
+        job_timeout=settings.rq_job_timeout_seconds,
+    )
+    job.meta["tenant_id"] = tenant_id
+    job.meta["process_name"] = f"Reporte {payload.group_id}"
+    job.meta["report_run_id"] = report_run_id
+    job.meta["progress"] = {
+        "processed": 0,
+        "total": len(files),
+        "ok": 0,
+        "error": 0,
+        "status": "running",
+        "message": "Preparando reporte",
+    }
+    job.save_meta()
+    create_report_run(
+        report_run_id=report_run_id,
+        job_id=job.id,
+        report_id=payload.report_id,
+        tenant_id=tenant_id,
+        group_id=payload.group_id,
+        status="running",
+        output_format=normalized_output_format,
+        csv_delimiter=normalized_csv_delimiter,
+        selected_files=files,
+        columns_snapshot=normalized_columns,
+        detail=serialize_job_status(job),
+    )
+    return {
+        "status": "queued",
+        "tenant_id": tenant_id,
+        "report_run_id": report_run_id,
+        "job_id": job.id,
+    }
+
+
+@router.get("/tenants/{tenant_id}/report-runs/{report_run_id}")
+async def get_report_run_endpoint(tenant_id: str, report_run_id: str):
+    _ensure_postgres_enabled()
+    try:
+        record = sync_report_run(tenant_id=tenant_id, report_run_id=report_run_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Get report run failed: {exc}")
+    if record is None:
+        raise HTTPException(status_code=404, detail="Report run not found")
+    return serialize_report_run(record)
+
+
+@router.get("/tenants/{tenant_id}/report-runs/{report_run_id}/download")
+async def download_report_run_artifact(tenant_id: str, report_run_id: str):
+    _ensure_postgres_enabled()
+    record = get_report_run(tenant_id=tenant_id, report_run_id=report_run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Report run not found")
+    if not record.artifact_path:
+        raise HTTPException(status_code=404, detail="Report artifact is not available")
+    artifact_path = Path(record.artifact_path)
+    if not artifact_path.exists():
+        raise HTTPException(status_code=404, detail="Report artifact file is missing")
+    return FileResponse(
+        path=str(artifact_path),
+        filename=record.artifact_filename or artifact_path.name,
+        media_type="application/octet-stream",
+    )
+
+
+@router.post("/tenants/{tenant_id}/report-runs/{report_run_id}/reprocess")
+async def reprocess_report_run_endpoint(
+    tenant_id: str,
+    report_run_id: str,
+    payload: ReportRunReprocessPayload,
+):
+    _ensure_postgres_enabled()
+    _ensure_tenant_active(tenant_id)
+    existing = get_report_run(tenant_id=tenant_id, report_run_id=report_run_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Report run not found")
+
+    files = existing.selected_files or []
+    if not files:
+        raise HTTPException(status_code=400, detail="Stored run has no selected files")
+    output_format = payload.output_format or existing.output_format
+    csv_delimiter = payload.csv_delimiter or existing.csv_delimiter
+    group_id = existing.group_id
+    columns_snapshot = existing.columns_snapshot
+
+    try:
+        normalized_output_format, normalized_csv_delimiter = normalize_report_run_options(
+            output_format=output_format,
+            csv_delimiter=csv_delimiter,
+        )
+        required_template_ids = {
+            str(item.get("template_id", "")).strip()
+            for item in files
+            if str(item.get("template_id", "")).strip()
+        }
+        normalized_columns = parse_report_columns_payload(
+            columns_snapshot,
+            required_template_ids=required_template_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    q = get_queue()
+    next_report_run_id = str(uuid.uuid4())
+    job = q.enqueue(
+        run_report_flow,
+        report_run_id=next_report_run_id,
+        tenant_id=tenant_id,
+        group_id=group_id,
+        file_ids=[str(item.get("file_id")) for item in files],
+        output_format=normalized_output_format,
+        csv_delimiter=normalized_csv_delimiter,
+        columns=normalized_columns,
+        job_timeout=settings.rq_job_timeout_seconds,
+    )
+    job.meta["tenant_id"] = tenant_id
+    job.meta["process_name"] = f"Reproceso reporte {group_id}"
+    job.meta["report_run_id"] = next_report_run_id
+    job.meta["progress"] = {
+        "processed": 0,
+        "total": len(files),
+        "ok": 0,
+        "error": 0,
+        "status": "running",
+        "message": "Preparando reporte",
+    }
+    job.save_meta()
+    create_report_run(
+        report_run_id=next_report_run_id,
+        job_id=job.id,
+        report_id=existing.report_id,
+        tenant_id=tenant_id,
+        group_id=group_id,
+        status="running",
+        output_format=normalized_output_format,
+        csv_delimiter=normalized_csv_delimiter,
+        selected_files=files,
+        columns_snapshot=normalized_columns,
+        detail=serialize_job_status(job),
+    )
+    return {
+        "status": "queued",
+        "tenant_id": tenant_id,
+        "report_run_id": next_report_run_id,
+        "job_id": job.id,
+        "source_report_run_id": report_run_id,
+    }
 
 
 @router.post("/jobs/{job_id}/stop")

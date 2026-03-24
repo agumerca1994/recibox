@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pdfplumber
@@ -205,7 +206,11 @@ def _extract_tokens_from_first_page(local_pdf_path: Path) -> list[dict[str, floa
     return tokens
 
 
-def _extract_document_field_rects(custom_model: dict | None) -> list[dict[str, object]]:
+def _extract_document_field_rects(
+    custom_model: dict | None,
+    *,
+    field_keys: set[str] | None = None,
+) -> list[dict[str, object]]:
     payload = custom_model or {}
     fields = payload.get("fields") if isinstance(payload, dict) else None
     if not isinstance(fields, list):
@@ -217,6 +222,8 @@ def _extract_document_field_rects(custom_model: dict | None) -> list[dict[str, o
             continue
         key = str(item.get("key", "")).strip()
         if not key:
+            continue
+        if field_keys is not None and key not in field_keys:
             continue
 
         rect_raw = item.get("rect")
@@ -244,9 +251,14 @@ def _extract_document_field_rects(custom_model: dict | None) -> list[dict[str, o
     return out
 
 
-def _extract_document_values(local_pdf_path: Path, custom_model: dict | None) -> dict[str, str]:
+def _extract_document_values(
+    local_pdf_path: Path,
+    custom_model: dict | None,
+    *,
+    field_keys: set[str] | None = None,
+) -> dict[str, str]:
     tokens = _extract_tokens_from_first_page(local_pdf_path)
-    fields = _extract_document_field_rects(custom_model)
+    fields = _extract_document_field_rects(custom_model, field_keys=field_keys)
     out: dict[str, str] = {}
 
     for field in fields:
@@ -258,6 +270,47 @@ def _extract_document_values(local_pdf_path: Path, custom_model: dict | None) ->
         out[key] = value
 
     return out
+
+
+def extract_template_value_map_from_local_pdf(
+    local_pdf_path: Path,
+    *,
+    template,
+    requested_field_keys: set[str] | None = None,
+) -> dict[str, str]:
+    text = extract_text_from_pdf(str(local_pdf_path))
+    info = parse_fields(text)
+    fallback_values = {
+        key: str(value).strip()
+        for key, value in asdict(info).items()
+        if value not in (None, "")
+    }
+    extracted_values = _extract_document_values(
+        local_pdf_path,
+        template.custom_model,
+        field_keys=requested_field_keys,
+    )
+    value_map = _build_mixed_value_map(extracted_values=extracted_values, fallback_values=fallback_values)
+
+    field_definitions = extract_document_field_definitions(template.custom_model)
+    available_field_keys = {item.key for item in field_definitions}
+    field_transform_groups = parse_field_transforms_payload(
+        getattr(template, "field_transforms", None),
+        available_field_keys=available_field_keys,
+    )
+    if requested_field_keys is not None:
+        field_transform_groups = [
+            group for group in field_transform_groups if group.field_key in requested_field_keys
+        ]
+    if field_transform_groups:
+        value_map, _ = apply_field_transforms_to_value_map(
+            value_map=value_map,
+            groups=field_transform_groups,
+        )
+
+    if requested_field_keys is None:
+        return value_map
+    return {key: str(value_map.get(key, "")).strip() for key in requested_field_keys}
 
 
 def _sanitize_drive_name(value: str, fallback: str) -> str:
@@ -808,7 +861,19 @@ def _process_one_template_document(
         if not target_filename:
             raise RuntimeError("No se pudo construir el nombre de archivo")
 
-        gdrive.move_and_rename(file_id, current_parent_id, target_filename, tenant_id=tenant_id)
+        gdrive.move_and_rename(
+            file_id,
+            current_parent_id,
+            target_filename,
+            tenant_id=tenant_id,
+            app_properties={
+                "recibox_template_id": str(template.template_id),
+                "recibox_group_id": str(getattr(template, "group_id", "") or ""),
+                "recibox_rule_id": str(classification_rule.rule_id),
+                "recibox_processed_at": datetime.now(timezone.utc).isoformat(),
+                "recibox_processor_version": str(settings.report_processor_version or "v1"),
+            },
+        )
         _remember_child_name(
             cache=effective_child_name_cache,
             parent_id=current_parent_id,

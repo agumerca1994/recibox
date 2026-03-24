@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     local_download_dir: str = "tmp/downloads"
     results_log_path: str = "tmp/results.jsonl"
+    report_artifacts_dir: str = "tmp/reports"
+    report_processor_version: str = "v1"
 
     redis_url: str = "redis://localhost:6379/0"
     rq_job_timeout_seconds: int = 900

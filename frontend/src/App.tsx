@@ -30,6 +30,7 @@ import { snapCenterToCursor } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import './App.css'
+import { ReportsScreen } from './reports/ReportsScreen'
 import {
   adoptReciboxFolder,
   buildDrivePdfDownloadUrl,
@@ -125,7 +126,7 @@ type FloatingMenuPosition = {
   openUp?: boolean
 }
 
-type Section = 'cuenta' | 'procesar' | 'nomina' | 'configuracion'
+type Section = 'cuenta' | 'procesar' | 'nomina' | 'reportes' | 'configuracion'
 type ProcessState = 'running' | 'success' | 'error' | 'paused'
 type SortOrder = 'asc' | 'desc'
 type ProcessingMode = 'default' | 'template'
@@ -266,6 +267,7 @@ const sectionPathMap: Record<Section, string> = {
   cuenta: '/cuentas',
   procesar: '/procesar',
   nomina: '/nomina',
+  reportes: '/reportes',
   configuracion: '/configuracion',
 }
 
@@ -981,6 +983,9 @@ function sectionFromPath(pathname: string): Section {
   }
   if (value === '/nomina') {
     return 'nomina'
+  }
+  if (value === '/reportes') {
+    return 'reportes'
   }
   if (value === '/configuracion') {
     return 'configuracion'
@@ -3994,7 +3999,7 @@ function BackofficeApp() {
 
   const applySectionChange = useCallback(
     (section: Section, mode: 'push' | 'replace' | 'none' = 'push') => {
-      if ((section === 'procesar' || section === 'nomina' || section === 'configuracion') && !isConnected) {
+      if ((section === 'procesar' || section === 'nomina' || section === 'reportes' || section === 'configuracion') && !isConnected) {
         setShowConnectRequiredModal(true)
         setActiveSection('cuenta')
         updateSectionPath('cuenta', 'replace')
@@ -4602,7 +4607,14 @@ function BackofficeApp() {
                 <span>Procesar</span>
               </span>
             </button>
-            <button type="button" className="menu-item menu-item-disabled">
+            <button
+              type="button"
+              className={`menu-item ${activeSection === 'reportes' ? 'active' : ''}`}
+              onClick={() => {
+                handleSectionChange('reportes')
+                setMobileMenuOpen(false)
+              }}
+            >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
                   <span translate="no" className="material-symbols-outlined notranslate">assessment</span>
@@ -4686,8 +4698,8 @@ function BackofficeApp() {
             </button>
             <button
               type="button"
-              className="menu-item menu-item-disabled"
-              disabled
+              className={`menu-item ${activeSection === 'reportes' ? 'active' : ''}`}
+              onClick={() => handleSectionChange('reportes')}
             >
               <span className="menu-item-inner">
                 <span className="menu-glyph" aria-hidden="true">
@@ -5455,6 +5467,14 @@ function BackofficeApp() {
               </section>
             </div>
           </main>
+        )}
+
+        {activeSection === 'reportes' && isConnected && (
+          <ReportsScreen
+            tenantId={tenantId}
+            isConnected={isConnected}
+            onRequireConnect={() => setShowConnectRequiredModal(true)}
+          />
         )}
       </div>
 

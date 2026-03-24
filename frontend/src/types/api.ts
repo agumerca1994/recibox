@@ -98,6 +98,7 @@ export type JobStatusResponse = {
   result: unknown
   progress?: {
     processed?: number | null
+    total?: number | null
     ok?: number | null
     error?: number | null
     status?: string | null
@@ -398,4 +399,116 @@ export type TemplateClassificationRuleResponse = {
   has_rule: boolean
   rule_errors?: string[]
   classification_rule?: ClassificationRule | null
+}
+
+export type ReportOutputFormat = 'csv' | 'xlsx'
+export type ReportColumnSourceType = 'system' | 'template_field'
+export type ReportColumnValueType = 'string' | 'number' | 'date'
+export type ReportTemplateBindingStatus = 'ready' | 'legacy' | 'mismatch' | 'outside_group' | 'invalid'
+
+export type ReportColumn = {
+  column_id?: string
+  label: string
+  value_type: ReportColumnValueType
+  source_type: ReportColumnSourceType
+  system_key?: 'file_name' | 'relative_path' | 'template_name' | 'processed_at' | null
+  template_mappings?: Record<string, string>
+  order?: number
+}
+
+export type ReportLayout = {
+  report_id: string
+  tenant_id: string
+  name: string
+  description?: string | null
+  default_group_id: string
+  default_output_format: ReportOutputFormat
+  csv_delimiter: ';' | ','
+  columns: ReportColumn[]
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type ReportLayoutListResponse = {
+  tenant_id: string
+  count: number
+  reports: ReportLayout[]
+}
+
+export type ReportSelectionResolvedFile = {
+  file_id: string
+  name: string
+  relative_path?: string | null
+  template_binding_status: ReportTemplateBindingStatus
+  template_id?: string | null
+  template_name?: string | null
+  processed_at?: string | null
+  created_at?: string | null
+  modified_at?: string | null
+  web_view_link?: string | null
+  error?: string | null
+}
+
+export type ReportTemplateFieldCatalogItem = {
+  key: string
+  name: string
+  label: string
+  type: TemplateFieldType
+  required: boolean
+}
+
+export type ReportSelectionTemplate = {
+  template_id: string
+  name: string
+  group_id?: string | null
+  is_active: boolean
+  fields: ReportTemplateFieldCatalogItem[]
+}
+
+export type ReportSystemField = {
+  key: 'file_name' | 'relative_path' | 'template_name' | 'processed_at'
+  label: string
+  value_type: ReportColumnValueType
+}
+
+export type ReportSelectionResolveResponse = {
+  status: string
+  tenant_id: string
+  group: {
+    group_id: string
+    name: string
+    drive_folder_id: string
+  }
+  files: ReportSelectionResolvedFile[]
+  templates: ReportSelectionTemplate[]
+  binding_templates: ReportSelectionTemplate[]
+  system_fields: ReportSystemField[]
+}
+
+export type ReportRunStatus = 'running' | 'success' | 'error'
+
+export type ReportRunRecord = {
+  report_run_id: string
+  job_id: string
+  report_id?: string | null
+  report_name?: string | null
+  tenant_id: string
+  group_id: string
+  status: ReportRunStatus
+  output_format: ReportOutputFormat
+  csv_delimiter: ';' | ','
+  selected_files: ReportSelectionResolvedFile[]
+  columns_snapshot: ReportColumn[]
+  artifact_filename?: string | null
+  artifact_available: boolean
+  detail?: JobStatusResponse | Record<string, unknown> | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export type ReportRunListResponse = {
+  tenant_id: string
+  count: number
+  items: ReportRunRecord[]
 }
