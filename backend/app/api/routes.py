@@ -7,11 +7,7 @@ import uuid
 from pydantic import BaseModel
 from rq.command import send_stop_job_command
 from rq.job import Job
-<<<<<<< Updated upstream
 
-=======
-
->>>>>>> Stashed changes
 from app.queue import get_queue, get_redis
 from app.core.config import settings
 from app.workers.flow_job import run_flow
@@ -75,7 +71,6 @@ from app.services.templates.source_pdf import (
     save_template_source_pdf,
 )
 from app.services.storage import gdrive
-<<<<<<< Updated upstream
 from app.services.storage.gdrive_ops import (
     ensure_employee_folder,
     ensure_year_folder,
@@ -92,24 +87,6 @@ from app.services.tenants.drive_config import (
     save_tenant_drive_config,
     set_tenant_disabled,
 )
-=======
-from app.services.storage.gdrive_ops import (
-    ensure_employee_folder,
-    ensure_year_folder,
-    list_employee_folders,
-    list_year_folders,
-)
-from app.services.auth import google_oauth
-from app.services.auth import firebase_auth
-from app.services.tenants.drive_config import (
-    clear_tenant_drive_config,
-    is_tenant_disabled,
-    load_tenant_drive_config,
-    resolve_tenant_drive_config,
-    save_tenant_drive_config,
-    set_tenant_disabled,
-)
->>>>>>> Stashed changes
 from app.services.tenants.user_tenants import resolve_or_create_user_tenant
 from app.services.tenants.user_profiles import upsert_user_profile
 from app.services.tenants.processing_preferences import (
@@ -267,7 +244,6 @@ class ReportRunCreatePayload(BaseModel):
 class ReportRunReprocessPayload(BaseModel):
     output_format: str | None = None
     csv_delimiter: str | None = None
-<<<<<<< Updated upstream
 
 
 def _ensure_tenant_active(tenant_id: str) -> None:
@@ -279,19 +255,6 @@ def _ensure_tenant_active(tenant_id: str) -> None:
         )
 
 
-=======
-
-
-def _ensure_tenant_active(tenant_id: str) -> None:
-    redis_conn = get_redis()
-    if is_tenant_disabled(redis_conn, tenant_id):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Tenant '{tenant_id}' is unlinked. Re-link OAuth to continue.",
-        )
-
-
->>>>>>> Stashed changes
 def _resolve_drive_config_or_400(tenant_id: str):
     redis_conn = get_redis()
     try:
@@ -303,7 +266,6 @@ def _resolve_drive_config_or_400(tenant_id: str):
 def _ensure_postgres_enabled() -> None:
     if not settings.postgres_url:
         raise HTTPException(status_code=503, detail="Postgres is required for reports")
-<<<<<<< Updated upstream
 
 
 def _extract_bearer_token(authorization: str | None) -> str:
@@ -331,35 +293,6 @@ def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str
         user_tenant = resolve_or_create_user_tenant(uid=uid, email=email)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Tenant mapping failed: {exc}")
-=======
-
-
-def _extract_bearer_token(authorization: str | None) -> str:
-    raw = (authorization or "").strip()
-    if not raw:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    parts = raw.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    return parts[1].strip()
-
-
-def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str | None, str]:
-    token = _extract_bearer_token(authorization)
-    try:
-        claims = firebase_auth.verify_bearer_token(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Firebase token")
-
-    uid = str(claims.get("uid", "")).strip()
-    email = str(claims.get("email", "")).strip() or None
-    if not uid:
-        raise HTTPException(status_code=401, detail="Token without uid")
-    try:
-        user_tenant = resolve_or_create_user_tenant(uid=uid, email=email)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Tenant mapping failed: {exc}")
->>>>>>> Stashed changes
     return user_tenant.uid, user_tenant.email, user_tenant.tenant_id
 
 
@@ -467,13 +400,8 @@ def _serialize_report_columns_payload(columns: list[ReportColumnPayload]) -> lis
 @router.get("/health")
 async def health():
     return {"status": "ok"}
-<<<<<<< Updated upstream
 
 
-=======
-
-
->>>>>>> Stashed changes
 @router.get("/auth/session")
 async def auth_session(authorization: str | None = Header(default=None)):
     uid, email, tenant_id = _resolve_user_tenant_from_token(authorization)
@@ -507,7 +435,6 @@ async def register_user(payload: RegisterUserPayload, authorization: str | None 
         "tax_id": profile.tax_id,
         "billing_address": profile.billing_address,
     }
-<<<<<<< Updated upstream
 
 @router.get("/drive/files")
 async def list_drive_files(
@@ -621,121 +548,6 @@ async def list_employee_files(
     return {"count": min(len(files), limit), "files": files[:limit]}
 
 
-=======
-
-@router.get("/drive/files")
-async def list_drive_files(
-    limit: int | None = Query(None, ge=1, le=1000),
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    cfg = _resolve_drive_config_or_400(tenant_id)
-    try:
-        files = list(
-            gdrive.list_files_in_folder(
-                cfg.drive_input_folder_id,
-                query_extra="mimeType = 'application/pdf'",
-                tenant_id=tenant_id,
-            )
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-
-    if limit is None:
-        return {"count": len(files), "files": files}
-
-    return {"count": min(len(files), limit), "files": files[:limit]}
-
-
-@router.get("/drive/employees")
-async def list_employee_folders_endpoint(
-    limit: int | None = Query(None, ge=1, le=1000),
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    cfg = _resolve_drive_config_or_400(tenant_id)
-    try:
-        folders = list_employee_folders(cfg.recibox_folder_id, tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-
-    if limit is None:
-        return {"count": len(folders), "folders": folders}
-
-    return {"count": min(len(folders), limit), "folders": folders[:limit]}
-
-
-@router.post("/drive/employees")
-async def create_employee_folder(
-    payload: CreateEmployeePayload,
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    employee_name = payload.employee_name.strip()
-    if not employee_name:
-        raise HTTPException(status_code=400, detail="employee_name is required")
-    cfg = _resolve_drive_config_or_400(tenant_id)
-    try:
-        folder = ensure_employee_folder(cfg.recibox_folder_id, employee_name, tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create employee folder failed: {exc}")
-    return {"status": "ok", "tenant_id": tenant_id, "folder": folder}
-
-
-@router.get("/drive/employees/{employee_folder_id}/years")
-async def list_employee_years(
-    employee_folder_id: str,
-    limit: int | None = Query(None, ge=1, le=1000),
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    try:
-        folders = list_year_folders(employee_folder_id, tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-
-    if limit is None:
-        return {"count": len(folders), "folders": folders}
-
-    return {"count": min(len(folders), limit), "folders": folders[:limit]}
-
-
-@router.post("/drive/employees/{employee_folder_id}/years")
-async def create_employee_year_folder(
-    employee_folder_id: str,
-    payload: CreateEmployeeYearPayload,
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    year = payload.year.strip()
-    if not year:
-        raise HTTPException(status_code=400, detail="year is required")
-    try:
-        folder = ensure_year_folder(employee_folder_id, year, tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create year folder failed: {exc}")
-    return {"status": "ok", "tenant_id": tenant_id, "folder": folder}
-
-
-@router.get("/drive/employees/{employee_folder_id}/files")
-async def list_employee_files(
-    employee_folder_id: str,
-    limit: int | None = Query(None, ge=1, le=1000),
-    tenant_id: str = Query("default"),
-):
-    _ensure_tenant_active(tenant_id)
-    try:
-        files = list(gdrive.list_files_in_folder(employee_folder_id, tenant_id=tenant_id))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-
-    if limit is None:
-        return {"count": len(files), "files": files}
-
-    return {"count": min(len(files), limit), "files": files[:limit]}
-
-
->>>>>>> Stashed changes
 @router.get("/drive/folders/{folder_id}/files")
 async def list_files_in_folder_endpoint(
     folder_id: str,
@@ -755,15 +567,9 @@ async def list_files_in_folder_endpoint(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-<<<<<<< Updated upstream
 
     if limit is None:
         return {"count": len(files), "files": files}
-=======
-
-    if limit is None:
-        return {"count": len(files), "files": files}
->>>>>>> Stashed changes
 
     return {"count": min(len(files), limit), "files": files[:limit]}
 
@@ -818,7 +624,6 @@ async def list_picker_folders(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-<<<<<<< Updated upstream
 
     if limit is None:
         return {"count": len(folders), "parent_id": parent_id, "folders": folders}
@@ -1084,273 +889,6 @@ async def download_drive_file(file_id: str, tenant_id: str = Query("default")):
         filename=f"{file_id}.pdf",
     )
 
-=======
-
-    if limit is None:
-        return {"count": len(folders), "parent_id": parent_id, "folders": folders}
-
-    return {
-        "count": min(len(folders), limit),
-        "parent_id": parent_id,
-        "folders": folders[:limit],
-    }
-
-
-@router.post("/drive/picker/folders")
-async def create_picker_folder(payload: CreateDriveFolderPayload, tenant_id: str = Query("default")):
-    _ensure_tenant_active(tenant_id)
-    name = payload.name.strip()
-    if not payload.parent_id.strip():
-        raise HTTPException(status_code=400, detail="parent_id is required")
-    if not name:
-        raise HTTPException(status_code=400, detail="name is required")
-    try:
-        folder = gdrive.create_folder(payload.parent_id.strip(), name, tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create folder failed: {exc}")
-    return {"status": "ok", "tenant_id": tenant_id, "folder": folder}
-
-
-@router.post("/drive/picker/recibox-structure")
-async def create_recibox_structure(
-    payload: CreateReciboxStructurePayload,
-    tenant_id: str = Query("default"),
-    save_as_tenant_config: bool = Query(True),
-):
-    _ensure_tenant_active(tenant_id)
-    parent_id = payload.parent_id.strip()
-    if not parent_id:
-        raise HTTPException(status_code=400, detail="parent_id is required")
-    try:
-        recibox_folder = gdrive.ensure_folder(parent_id, "RECIBOX", tenant_id=tenant_id)
-        input_folder = gdrive.ensure_folder(recibox_folder["id"], "#0 INPUT", tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create structure failed: {exc}")
-
-    updated_config = None
-    if save_as_tenant_config:
-        redis_conn = get_redis()
-        cfg = save_tenant_drive_config(
-            redis_conn,
-            tenant_id,
-            drive_input_folder_id=input_folder["id"],
-            drive_root_folder_id=parent_id,
-            drive_recibox_folder_id=recibox_folder["id"],
-        )
-        set_tenant_disabled(redis_conn, tenant_id, False)
-        updated_config = {
-            "drive_input_folder_id": cfg.drive_input_folder_id,
-            "drive_root_folder_id": cfg.drive_root_folder_id,
-            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
-            "source": cfg.source,
-            "updated_at": cfg.updated_at,
-        }
-
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "parent_id": parent_id,
-        "root_folder": recibox_folder,
-        "input_folder": input_folder,
-        "tenant_config_updated": bool(updated_config),
-        "tenant_config": updated_config,
-    }
-
-
-@router.get("/drive/picker/recibox-structure/check")
-async def check_recibox_structure(
-    tenant_id: str = Query("default"),
-    parent_id: str = Query("root"),
-):
-    _ensure_tenant_active(tenant_id)
-    parent = parent_id.strip()
-    if not parent:
-        raise HTTPException(status_code=400, detail="parent_id is required")
-
-    try:
-        recibox_folder = gdrive.find_folder_by_name(parent, "RECIBOX", tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Check structure failed: {exc}")
-
-    if not recibox_folder:
-        return {
-            "status": "missing_recibox",
-            "parent_id": parent,
-            "recibox_exists": False,
-            "input_exists": False,
-            "recibox_folder_id": None,
-            "input_folder_id": None,
-        }
-
-    try:
-        input_folder = gdrive.find_folder_by_name(recibox_folder["id"], "#0 INPUT", tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Check structure failed: {exc}")
-
-    if not input_folder:
-        return {
-            "status": "missing_input",
-            "parent_id": parent,
-            "recibox_exists": True,
-            "input_exists": False,
-            "recibox_folder_id": recibox_folder["id"],
-            "input_folder_id": None,
-        }
-
-    return {
-        "status": "complete",
-        "parent_id": parent,
-        "recibox_exists": True,
-        "input_exists": True,
-        "recibox_folder_id": recibox_folder["id"],
-        "input_folder_id": input_folder["id"],
-    }
-
-
-@router.post("/drive/picker/recibox-input")
-async def create_recibox_input(
-    payload: CreateReciboxInputPayload,
-    tenant_id: str = Query("default"),
-    save_as_tenant_config: bool = Query(True),
-):
-    _ensure_tenant_active(tenant_id)
-    recibox_folder_id = payload.recibox_folder_id.strip()
-    if not recibox_folder_id:
-        raise HTTPException(status_code=400, detail="recibox_folder_id is required")
-
-    try:
-        input_folder = gdrive.ensure_folder(recibox_folder_id, "#0 INPUT", tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create input folder failed: {exc}")
-
-    updated_config = None
-    if save_as_tenant_config:
-        redis_conn = get_redis()
-        current_cfg = load_tenant_drive_config(redis_conn, tenant_id)
-        fallback_root = (settings.drive_root_folder_id or "").strip()
-        root_parent_id = (payload.root_parent_id or "").strip() or (
-            current_cfg.drive_root_folder_id if current_cfg else fallback_root or recibox_folder_id
-        )
-        cfg = save_tenant_drive_config(
-            redis_conn,
-            tenant_id,
-            drive_input_folder_id=input_folder["id"],
-            drive_root_folder_id=root_parent_id,
-            drive_recibox_folder_id=recibox_folder_id,
-        )
-        set_tenant_disabled(redis_conn, tenant_id, False)
-        updated_config = {
-            "drive_input_folder_id": cfg.drive_input_folder_id,
-            "drive_root_folder_id": cfg.drive_root_folder_id,
-            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
-            "source": cfg.source,
-            "updated_at": cfg.updated_at,
-        }
-
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "recibox_folder_id": recibox_folder_id,
-        "input_folder": input_folder,
-        "tenant_config_updated": bool(updated_config),
-        "tenant_config": updated_config,
-    }
-
-
-@router.post("/drive/picker/recibox-structure/adopt-folder")
-async def adopt_recibox_folder(
-    payload: AdoptReciboxFolderPayload,
-    tenant_id: str = Query("default"),
-    save_as_tenant_config: bool = Query(True),
-):
-    _ensure_tenant_active(tenant_id)
-    folder_id = payload.folder_id.strip()
-    parent_id = payload.parent_id.strip() or "root"
-    if not folder_id:
-        raise HTTPException(status_code=400, detail="folder_id is required")
-
-    query = "mimeType = 'application/vnd.google-apps.folder'"
-    try:
-        root_folders = list(gdrive.list_files_in_folder(parent_id, query_extra=query, tenant_id=tenant_id))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List failed: {exc}")
-
-    selected_folder = next((folder for folder in root_folders if folder.get("id") == folder_id), None)
-    if not selected_folder:
-        raise HTTPException(status_code=404, detail="Selected folder was not found in parent")
-
-    existing_recibox = next(
-        (
-            folder
-            for folder in root_folders
-            if folder.get("name") == "RECIBOX" and folder.get("id") != folder_id
-        ),
-        None,
-    )
-    if existing_recibox:
-        raise HTTPException(status_code=409, detail="A different RECIBOX folder already exists in parent")
-
-    try:
-        recibox_folder = gdrive.update_file_metadata(
-            folder_id,
-            tenant_id=tenant_id,
-            new_name="RECIBOX",
-        )
-        input_folder = gdrive.ensure_folder(folder_id, "#0 INPUT", tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Adopt folder failed: {exc}")
-
-    updated_config = None
-    if save_as_tenant_config:
-        redis_conn = get_redis()
-        cfg = save_tenant_drive_config(
-            redis_conn,
-            tenant_id,
-            drive_input_folder_id=input_folder["id"],
-            drive_root_folder_id=parent_id,
-            drive_recibox_folder_id=recibox_folder["id"],
-        )
-        set_tenant_disabled(redis_conn, tenant_id, False)
-        updated_config = {
-            "drive_input_folder_id": cfg.drive_input_folder_id,
-            "drive_root_folder_id": cfg.drive_root_folder_id,
-            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
-            "source": cfg.source,
-            "updated_at": cfg.updated_at,
-        }
-
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "parent_id": parent_id,
-        "root_folder": recibox_folder,
-        "input_folder": input_folder,
-        "tenant_config_updated": bool(updated_config),
-        "tenant_config": updated_config,
-    }
-
-
-@router.get("/drive/files/{file_id}/download")
-async def download_drive_file(file_id: str, tenant_id: str = Query("default")):
-    _ensure_tenant_active(tenant_id)
-    local_dir = Path(settings.local_download_dir)
-    local_dir.mkdir(parents=True, exist_ok=True)
-    local_path = local_dir / f"{file_id}.pdf"
-    try:
-        gdrive.download_file(file_id, str(local_path), tenant_id=tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Download failed: {exc}")
-
-    if not local_path.exists() or local_path.stat().st_size == 0:
-        raise HTTPException(status_code=500, detail="Downloaded file is empty or missing")
-
-    return FileResponse(
-        path=str(local_path),
-        media_type="application/pdf",
-        filename=f"{file_id}.pdf",
-    )
-
->>>>>>> Stashed changes
 @router.post("/ingest/drive")
 async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str = Query("default")):
     _ensure_tenant_active(tenant_id)
@@ -1456,13 +994,8 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
         "template_id": template_id,
         "file_ids_count": len(selected_file_ids),
     }
-<<<<<<< Updated upstream
 
 
-=======
-
-
->>>>>>> Stashed changes
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str):
     try:
@@ -1827,7 +1360,6 @@ async def reprocess_report_run_endpoint(
 
 @router.post("/jobs/{job_id}/stop")
 async def stop_job(job_id: str):
-<<<<<<< Updated upstream
     try:
         job = Job.fetch(job_id, connection=get_redis())
     except Exception:
@@ -1846,26 +1378,6 @@ async def stop_job(job_id: str):
         job.cancel()
     except Exception:
         pass
-=======
-    try:
-        job = Job.fetch(job_id, connection=get_redis())
-    except Exception:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    redis_conn = get_redis()
-    tenant_id = job.meta.get("tenant_id", "default")
-    lock_key = f"recibox:lock:{tenant_id}"
-
-    try:
-        send_stop_job_command(redis_conn, job_id)
-    except Exception:
-        pass
-
-    try:
-        job.cancel()
-    except Exception:
-        pass
->>>>>>> Stashed changes
 
     try:
         redis_conn.delete(lock_key)
@@ -1885,21 +1397,12 @@ async def stop_job(job_id: str):
         "tenant_id": tenant_id,
         "process_run": serialize_process_run(process_run) if process_run else None,
     }
-<<<<<<< Updated upstream
 
 @router.post("/process/{file_id}")
 async def process_file(file_id: str):
     return {"file_id": file_id, "status": "queued"}
 
 
-=======
-
-@router.post("/process/{file_id}")
-async def process_file(file_id: str):
-    return {"file_id": file_id, "status": "queued"}
-
-
->>>>>>> Stashed changes
 @router.get("/auth/google/login")
 async def google_oauth_login(
     tenant_id: str = Query("default"),
@@ -1991,7 +1494,6 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
         )
         redis_conn = get_redis()
         set_tenant_disabled(redis_conn, tenant_id, False)
-<<<<<<< Updated upstream
     except Exception as exc:
         if popup:
             return HTMLResponse(
@@ -2015,31 +1517,6 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
     return {"status": "ok", "tenant_id": tenant_id}
 
 
-=======
-    except Exception as exc:
-        if popup:
-            return HTMLResponse(
-                content=_oauth_popup_callback_html(
-                    tenant_id=tenant_id,
-                    ok=False,
-                    message=str(exc),
-                )
-            )
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    if popup:
-        return HTMLResponse(
-            content=_oauth_popup_callback_html(
-                tenant_id=tenant_id,
-                ok=True,
-                message=f"Tenant '{tenant_id}' vinculado.",
-            )
-        )
-
-    return {"status": "ok", "tenant_id": tenant_id}
-
-
->>>>>>> Stashed changes
 @router.get("/auth/google/status")
 async def google_oauth_status(tenant_id: str = Query("default")):
     try:
@@ -2053,7 +1530,6 @@ async def google_oauth_status(tenant_id: str = Query("default")):
         "tenant_disabled": tenant_disabled,
         "operable": bool(status.get("has_token") and status.get("valid") and not tenant_disabled),
     }
-<<<<<<< Updated upstream
 
 
 @router.post("/auth/google/unlink")
@@ -2251,205 +1727,6 @@ async def put_tenant_processing_preferences(tenant_id: str, payload: ProcessingP
     }
 
 
-=======
-
-
-@router.post("/auth/google/unlink")
-async def google_oauth_unlink(
-    tenant_id: str = Query("default"),
-    clear_drive_config: bool = Query(True),
-    clear_lock: bool = Query(True),
-    disable_tenant: bool = Query(True),
-):
-    try:
-        result = google_oauth.unlink_tenant_oauth(tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    redis_conn = get_redis()
-    if clear_drive_config:
-        result["deleted_drive_config"] = clear_tenant_drive_config(redis_conn, tenant_id)
-    else:
-        result["deleted_drive_config"] = False
-
-    if clear_lock:
-        lock_key = f"recibox:lock:{tenant_id}"
-        result["deleted_lock"] = bool(redis_conn.delete(lock_key))
-    else:
-        result["deleted_lock"] = False
-
-    if disable_tenant:
-        set_tenant_disabled(redis_conn, tenant_id, True)
-        result["tenant_disabled"] = True
-    else:
-        result["tenant_disabled"] = False
-
-    has_custom = load_tenant_drive_config(redis_conn, tenant_id) is not None
-    result["post_unlink"] = {
-        "oauth": google_oauth.get_token_status(tenant_id),
-        "has_custom_drive_config": has_custom,
-        "tenant_disabled": is_tenant_disabled(redis_conn, tenant_id),
-    }
-
-    return result
-
-
-@router.post("/auth/google/refresh")
-async def google_oauth_refresh(tenant_id: str = Query("default")):
-    try:
-        return google_oauth.refresh_tenant_credentials(tenant_id)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/tenants/{tenant_id}/drive-config")
-async def get_tenant_drive_config(tenant_id: str):
-    redis_conn = get_redis()
-    cfg = load_tenant_drive_config(redis_conn, tenant_id)
-    if not cfg:
-        default_input = (settings.drive_input_folder_id or "").strip()
-        default_root = (settings.drive_root_folder_id or "").strip()
-        if default_input and default_root:
-            cfg = {
-                "tenant_id": tenant_id,
-                "drive_input_folder_id": default_input,
-                "drive_root_folder_id": default_root,
-                "drive_recibox_folder_id": None,
-                "source": "default_env",
-                "updated_at": None,
-            }
-        else:
-            cfg = {
-                "tenant_id": tenant_id,
-                "drive_input_folder_id": None,
-                "drive_root_folder_id": None,
-                "drive_recibox_folder_id": None,
-                "source": "not_configured",
-                "updated_at": None,
-            }
-    else:
-        cfg = {
-            "tenant_id": cfg.tenant_id,
-            "drive_input_folder_id": cfg.drive_input_folder_id,
-            "drive_root_folder_id": cfg.drive_root_folder_id,
-            "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
-            "source": cfg.source,
-            "updated_at": cfg.updated_at,
-        }
-    has_custom = load_tenant_drive_config(redis_conn, tenant_id) is not None
-    return {
-        "tenant_id": cfg["tenant_id"],
-        "drive_input_folder_id": cfg["drive_input_folder_id"],
-        "drive_root_folder_id": cfg["drive_root_folder_id"],
-        "drive_recibox_folder_id": cfg["drive_recibox_folder_id"],
-        "source": cfg["source"],
-        "has_custom_config": has_custom,
-        "updated_at": cfg["updated_at"],
-    }
-
-
-@router.put("/tenants/{tenant_id}/drive-config")
-async def put_tenant_drive_config(tenant_id: str, payload: TenantDriveConfigPayload):
-    redis_conn = get_redis()
-    try:
-        cfg = save_tenant_drive_config(
-            redis_conn,
-            tenant_id,
-            drive_input_folder_id=payload.drive_input_folder_id,
-            drive_root_folder_id=payload.drive_root_folder_id,
-            drive_recibox_folder_id=payload.drive_recibox_folder_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Save failed: {exc}")
-
-    set_tenant_disabled(redis_conn, tenant_id, False)
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "drive_input_folder_id": cfg.drive_input_folder_id,
-        "drive_root_folder_id": cfg.drive_root_folder_id,
-        "drive_recibox_folder_id": cfg.drive_recibox_folder_id,
-        "source": cfg.source,
-        "updated_at": cfg.updated_at,
-    }
-
-
-@router.delete("/tenants/{tenant_id}/drive-config")
-async def delete_tenant_drive_config(tenant_id: str):
-    redis_conn = get_redis()
-    deleted = clear_tenant_drive_config(redis_conn, tenant_id)
-    return {"status": "ok", "tenant_id": tenant_id, "deleted": deleted}
-
-
-@router.get("/tenants/{tenant_id}/processing-preferences")
-async def get_tenant_processing_preferences(tenant_id: str):
-    redis_conn = get_redis()
-    cfg = resolve_tenant_processing_preferences(redis_conn, tenant_id)
-    has_custom = load_tenant_processing_preferences(redis_conn, tenant_id) is not None
-    return {
-        "tenant_id": cfg.tenant_id,
-        "filename_format_mode": cfg.filename_format_mode,
-        "filename_custom_format": {
-            "part1": cfg.filename_custom_format.part1,
-            "sep1": cfg.filename_custom_format.sep1,
-            "part2": cfg.filename_custom_format.part2,
-            "sep2": cfg.filename_custom_format.sep2,
-            "part3": cfg.filename_custom_format.part3,
-        },
-        "employee_folder_number_mode": cfg.employee_folder_number_mode,
-        "employee_folder_number_custom_part1": cfg.employee_folder_number_custom_part1,
-        "employee_folder_number_custom_part2": cfg.employee_folder_number_custom_part2,
-        "auto_create_missing_employee_folder": cfg.auto_create_missing_employee_folder,
-        "source": cfg.source,
-        "has_custom_config": has_custom,
-        "updated_at": cfg.updated_at,
-    }
-
-
-@router.put("/tenants/{tenant_id}/processing-preferences")
-async def put_tenant_processing_preferences(tenant_id: str, payload: ProcessingPreferencesPayload):
-    redis_conn = get_redis()
-    try:
-        cfg = save_tenant_processing_preferences(
-            redis_conn,
-            tenant_id,
-            filename_format_mode=payload.filename_format_mode,
-            filename_custom_format=(
-                payload.filename_custom_format.model_dump() if payload.filename_custom_format else None
-            ),
-            employee_folder_number_mode=payload.employee_folder_number_mode,
-            employee_folder_number_custom_part1=payload.employee_folder_number_custom_part1,
-            employee_folder_number_custom_part2=payload.employee_folder_number_custom_part2,
-            auto_create_missing_employee_folder=payload.auto_create_missing_employee_folder,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Save failed: {exc}")
-
-    return {
-        "status": "ok",
-        "tenant_id": tenant_id,
-        "filename_format_mode": cfg.filename_format_mode,
-        "filename_custom_format": {
-            "part1": cfg.filename_custom_format.part1,
-            "sep1": cfg.filename_custom_format.sep1,
-            "part2": cfg.filename_custom_format.part2,
-            "sep2": cfg.filename_custom_format.sep2,
-            "part3": cfg.filename_custom_format.part3,
-        },
-        "employee_folder_number_mode": cfg.employee_folder_number_mode,
-        "employee_folder_number_custom_part1": cfg.employee_folder_number_custom_part1,
-        "employee_folder_number_custom_part2": cfg.employee_folder_number_custom_part2,
-        "auto_create_missing_employee_folder": cfg.auto_create_missing_employee_folder,
-        "source": cfg.source,
-        "updated_at": cfg.updated_at,
-    }
-
-
->>>>>>> Stashed changes
 @router.delete("/tenants/{tenant_id}/processing-preferences")
 async def delete_tenant_processing_preferences(tenant_id: str):
     redis_conn = get_redis()
