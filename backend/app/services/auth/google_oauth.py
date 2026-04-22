@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import json
-<<<<<<< Updated upstream
-=======
 import re
->>>>>>> Stashed changes
 from pathlib import Path
 from secrets import choice
 from typing import Iterable
@@ -22,47 +19,6 @@ _PKCE_VERIFIER_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 
 def _scopes() -> list[str]:
     return [s.strip() for s in settings.google_oauth_scopes.replace(",", " ").split() if s.strip()]
-
-
-def _scope_set(scopes: Iterable[str] | str | None) -> set[str]:
-    if isinstance(scopes, str):
-        values = scopes.replace(",", " ").split()
-    else:
-        values = scopes or []
-    return {scope.strip() for scope in values if scope and scope.strip()}
-
-
-def _stored_scope_set(tenant_id: str) -> set[str]:
-    path = _token_path(tenant_id)
-    if not path.exists():
-        return set()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return set()
-    return _scope_set(payload.get("scopes"))
-
-
-def _missing_scopes(tenant_id: str, creds: Credentials) -> list[str]:
-    required = _scope_set(_scopes())
-    granted = (
-        _stored_scope_set(tenant_id)
-        or _scope_set(getattr(creds, "granted_scopes", None))
-        or _scope_set(creds.scopes)
-    )
-    return sorted(required - granted)
-
-
-def _granted_scopes(tenant_id: str, creds: Credentials) -> list[str]:
-    return sorted(
-        _stored_scope_set(tenant_id)
-        or _scope_set(getattr(creds, "granted_scopes", None))
-        or _scope_set(creds.scopes)
-    )
-
-
-def _has_required_scopes(tenant_id: str, creds: Credentials) -> bool:
-    return not _missing_scopes(tenant_id, creds)
 
 
 def _scope_set(scopes: Iterable[str] | str | None) -> set[str]:
