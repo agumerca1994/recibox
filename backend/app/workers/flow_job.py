@@ -14,6 +14,34 @@ from app.services.storage.gdrive_ops import (
 from app.services.tenants.drive_config import resolve_tenant_drive_config
 from app.services.tenants.processing_preferences import resolve_tenant_processing_preferences
 from pathlib import Path
+from rq import get_current_job
+
+
+def _update_current_job_progress(
+    *,
+    processed: int,
+    ok: int,
+    error: int,
+    status: str,
+    message: str,
+) -> None:
+    try:
+        job = get_current_job()
+    except Exception:
+        job = None
+    if job is None:
+        return
+    try:
+        job.meta["progress"] = {
+          "processed": max(int(processed or 0), 0),
+          "ok": max(int(ok or 0), 0),
+          "error": max(int(error or 0), 0),
+          "status": str(status or "").strip() or "running",
+          "message": str(message or "").strip() or None,
+        }
+        job.save_meta()
+    except Exception:
+        return
 
 
 def _process_one(
@@ -167,7 +195,8 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
         total = min(len(files), limit)
         ok = 0
         err = 0
-        for f in files[:total]:
+        _update_current_job_progress(processed=0, ok=0, error=0, status="running", message="Proceso en curso")
+        for index, f in enumerate(files[:total], start=1):
             result = _process_one(
                 f,
                 tenant_id=tenant_id,
@@ -184,9 +213,25 @@ def run_flow(tenant_id: str = "default", limit: int = 50) -> dict:
                 ok += 1
             else:
                 err += 1
+            _update_current_job_progress(
+                processed=index,
+                ok=ok,
+                error=err,
+                status="running",
+                message=result.message or "Proceso en curso",
+            )
+
+        final_status = "ok" if err == 0 else "partial"
+        _update_current_job_progress(
+            processed=total,
+            ok=ok,
+            error=err,
+            status=final_status,
+            message="Proceso finalizado" if err == 0 else "Proceso finalizado con errores",
+        )
 
         return {
-            "status": "ok" if err == 0 else "partial",
+            "status": final_status,
             "processed": total,
             "ok": ok,
             "error": err,

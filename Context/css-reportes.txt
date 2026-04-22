@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Recibox Reports Dashboard</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-highest": "#e1e3e4",
+              "background": "#f8f9fa",
+              "secondary": "#555f6f",
+              "error-container": "#ffdad6",
+              "inverse-primary": "#98da27",
+              "outline": "#727a64",
+              "on-tertiary-container": "#006933",
+              "on-tertiary": "#ffffff",
+              "inverse-surface": "#2e3132",
+              "tertiary-container": "#5bed8d",
+              "secondary-container": "#d6e0f3",
+              "on-secondary": "#ffffff",
+              "on-secondary-fixed-variant": "#3d4756",
+              "on-error-container": "#93000a",
+              "primary-fixed": "#b2f746",
+              "surface-container-low": "#f3f4f5",
+              "surface": "#f8f9fa",
+              "primary-fixed-dim": "#98da27",
+              "on-tertiary-fixed-variant": "#005227",
+              "primary-container": "#a3e635",
+              "surface-tint": "#446900",
+              "on-tertiary-fixed": "#00210c",
+              "tertiary-fixed": "#6dfe9c",
+              "surface-container": "#edeeef",
+              "secondary-fixed": "#d9e3f6",
+              "primary": "#446900",
+              "on-secondary-container": "#596373",
+              "surface-variant": "#e1e3e4",
+              "on-secondary-fixed": "#121c2a",
+              "error": "#ba1a1a",
+              "surface-container-lowest": "#ffffff",
+              "on-background": "#191c1d",
+              "on-error": "#ffffff",
+              "outline-variant": "#c2cab0",
+              "on-surface": "#191c1d",
+              "on-surface-variant": "#424936",
+              "tertiary-fixed-dim": "#4de082",
+              "surface-bright": "#f8f9fa",
+              "surface-container-high": "#e7e8e9",
+              "surface-dim": "#d9dadb",
+              "on-primary-fixed-variant": "#334f00",
+              "on-primary": "#ffffff",
+              "on-primary-fixed": "#121f00",
+              "tertiary": "#006d36",
+              "secondary-fixed-dim": "#bdc7d9",
+              "on-primary-container": "#416400",
+              "inverse-on-surface": "#f0f1f2"
+            },
+            fontFamily: {
+              "headline": ["Manrope", "sans-serif"],
+              "body": ["Inter", "sans-serif"],
+              "label": ["Inter", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-background flex min-h-screen">
+<!-- SideNavBar Component -->
+<aside class="h-screen w-64 bg-neutral-50 dark:bg-neutral-900 flex flex-col p-4 gap-2 shrink-0 sticky top-0">
+<div class="flex items-center gap-3 px-2 mb-8">
+<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center text-on-primary-container shadow-sm">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard_customize</span>
+</div>
+<div class="flex flex-col">
+<span class="text-xl font-bold text-neutral-900 dark:text-white tracking-tighter leading-tight">Recibox</span>
+<span class="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">Backoffice</span>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg" href="#">
+<span class="material-symbols-outlined">inbox</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Inbox</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg" href="#">
+<span class="material-symbols-outlined">rule</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Rules</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-lime-600 dark:text-lime-400 bg-white dark:bg-neutral-800 rounded-lg shadow-sm font-bold active:scale-95 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">assessment</span>
+<span class="font-manrope text-sm tracking-tight">Reports</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-neutral-100 dark:border-neutral-800">
+<button class="w-full bg-primary-container text-on-primary-container font-headline font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-95">
+<span class="material-symbols-outlined">add_circle</span>
+                New Report
+            </button>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0">
+<!-- TopNavBar Component -->
+<header class="sticky top-0 w-full z-40 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md border-b border-neutral-100 dark:border-neutral-800">
+<div class="flex justify-between items-center h-16 px-8 w-full">
+<div class="flex items-center gap-4 flex-1">
+<div class="relative w-full max-w-md group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">search</span>
+<input class="w-full bg-surface-container-high border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-lime-500/20 transition-all" placeholder="Search reports..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4">
+<button class="text-neutral-500 hover:text-lime-500 transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-neutral-500 hover:text-lime-500 transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-px bg-neutral-100 dark:bg-neutral-800"></div>
+<div class="flex items-center gap-3">
+<div class="text-right hidden sm:block">
+<p class="text-xs font-bold text-on-surface">Alex Rivera</p>
+<p class="text-[10px] text-neutral-500">Administrator</p>
+</div>
+<img class="w-10 h-10 rounded-full border-2 border-primary-container/30 object-cover" data-alt="User avatar for Alex Rivera" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjsqMgvxQ-NRQhH5-aIbsNvMSlMaj5AUWKRdCX8y5u23rnqUsEJ9Rm3qg0IYQIdHtVoVgpcMD2qVBwnye_uIRCRCQH_t_ucl9vjY5NuPd98Fa0OQ9Qs0RsfLHAsqifYiDtb1PH15xkL7zLflQbXUQu1t0bXQl44OukcINFEkYIgXHzGaVjCnbH6ho1TPhb9QEZqZ1uihrobsMEAalvMpbjGVipPoCuLnvGzBYlD_23KTJSbEnoDt1Db-KQiaXI1iO7X9YKrDpdhuw"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Page Canvas -->
+<div class="p-8 space-y-8 max-w-7xl mx-auto w-full">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div class="space-y-1">
+<nav class="flex items-center gap-2 text-xs text-neutral-400 font-medium uppercase tracking-widest mb-2">
+<span>Backoffice</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span class="text-lime-600">Reports</span>
+</nav>
+<h1 class="text-4xl font-extrabold tracking-tighter text-on-surface font-headline">Reportes</h1>
+<p class="text-secondary font-body">Manage layout templates and view historical processing runs.</p>
+</div>
+<button class="bg-primary text-on-primary font-headline font-bold px-8 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+<span class="material-symbols-outlined">add</span>
+                    Nuevo Reporte
+                </button>
+</div>
+<!-- Bento Grid Section -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Saved Layouts (Large Column) -->
+<section class="lg:col-span-8 space-y-4">
+<div class="flex items-center justify-between px-2">
+<h2 class="text-xl font-bold font-headline tracking-tight">Layouts guardados</h2>
+<button class="text-primary text-sm font-bold flex items-center gap-1 hover:underline">
+                            View All <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Layout Card 1 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border-none shadow-sm hover:shadow-md transition-shadow group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 bg-tertiary-container/20 rounded-lg flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">table_chart</span>
+</div>
+<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-on-surface">
+<span class="material-symbols-outlined text-sm">edit</span>
+</button>
+<button class="p-2 hover:bg-error-container/20 rounded-lg text-neutral-400 hover:text-error">
+<span class="material-symbols-outlined text-sm">delete</span>
+</button>
+</div>
+</div>
+<h3 class="font-bold text-lg mb-1 group-hover:text-primary transition-colors">Cierre Mensual - Fiscal</h3>
+<p class="text-xs text-neutral-500 mb-6">Last updated: 12 Oct, 2023</p>
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-surface-container text-on-surface-variant font-bold rounded-lg hover:bg-primary-container hover:text-on-primary-container transition-colors">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                                Run Layout
+                            </button>
+</div>
+<!-- Layout Card 2 -->
+<div class="bg-surface-container-lowest p-5 rounded-xl border-none shadow-sm hover:shadow-md transition-shadow group">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 bg-secondary-container/30 rounded-lg flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">account_balance</span>
+</div>
+<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-2 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-on-surface">
+<span class="material-symbols-outlined text-sm">edit</span>
+</button>
+<button class="p-2 hover:bg-error-container/20 rounded-lg text-neutral-400 hover:text-error">
+<span class="material-symbols-outlined text-sm">delete</span>
+</button>
+</div>
+</div>
+<h3 class="font-bold text-lg mb-1 group-hover:text-primary transition-colors">Auditoría Operativa V2</h3>
+<p class="text-xs text-neutral-500 mb-6">Last updated: 05 Oct, 2023</p>
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-surface-container text-on-surface-variant font-bold rounded-lg hover:bg-primary-container hover:text-on-primary-container transition-colors">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                                Run Layout
+                            </button>
+</div>
+<!-- Layout Card 3 (Empty State Style) -->
+<div class="border-2 border-dashed border-outline-variant/30 p-5 rounded-xl flex flex-col items-center justify-center text-center gap-2 hover:border-primary/50 transition-colors cursor-pointer group">
+<div class="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-400 group-hover:bg-primary-container/20 group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined">add</span>
+</div>
+<span class="text-sm font-bold text-neutral-400 group-hover:text-on-surface">Create New Template</span>
+</div>
+</div>
+</section>
+<!-- Recent Runs (Sidebar Column) -->
+<section class="lg:col-span-4 space-y-4">
+<div class="flex items-center justify-between px-2">
+<h2 class="text-xl font-bold font-headline tracking-tight">Corridas recientes</h2>
+</div>
+<div class="bg-surface-container-low rounded-2xl p-2 space-y-2">
+<!-- Recent Run Item 1 -->
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-center gap-4 border border-transparent hover:border-outline-variant/20 transition-all group">
+<div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-bold truncate text-on-surface">reporte-cierre-2023.xlsx</p>
+<div class="flex items-center gap-2">
+<span class="flex h-1.5 w-1.5 rounded-full bg-green-500"></span>
+<span class="text-[10px] font-bold text-green-600 uppercase tracking-tight">Success</span>
+<span class="text-[10px] text-neutral-400">• 2 mins ago</span>
+</div>
+</div>
+<button class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-primary-container/20 text-primary transition-colors">
+<span class="material-symbols-outlined text-xl">download</span>
+</button>
+</div>
+<!-- Recent Run Item 2 -->
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-center gap-4 border border-transparent hover:border-outline-variant/20 transition-all group">
+<div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-bold truncate text-on-surface">nomina_septiembre_final.xlsx</p>
+<div class="flex items-center gap-2">
+<span class="flex h-1.5 w-1.5 rounded-full bg-green-500"></span>
+<span class="text-[10px] font-bold text-green-600 uppercase tracking-tight">Success</span>
+<span class="text-[10px] text-neutral-400">• 1h ago</span>
+</div>
+</div>
+<button class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-primary-container/20 text-primary transition-colors">
+<span class="material-symbols-outlined text-xl">download</span>
+</button>
+</div>
+<!-- Recent Run Item 3 -->
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-center gap-4 border border-transparent hover:border-outline-variant/20 transition-all group">
+<div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-bold truncate text-on-surface">consolidado_anual_draft.xlsx</p>
+<div class="flex items-center gap-2">
+<span class="flex h-1.5 w-1.5 rounded-full bg-green-500"></span>
+<span class="text-[10px] font-bold text-green-600 uppercase tracking-tight">Success</span>
+<span class="text-[10px] text-neutral-400">• 4h ago</span>
+</div>
+</div>
+<button class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-primary-container/20 text-primary transition-colors">
+<span class="material-symbols-outlined text-xl">download</span>
+</button>
+</div>
+<!-- See More Button -->
+<button class="w-full py-3 text-xs font-bold text-neutral-400 hover:text-on-surface transition-colors flex items-center justify-center gap-2">
+                            Show earlier runs
+                            <span class="material-symbols-outlined text-sm">expand_more</span>
+</button>
+</div>
+<!-- Usage Stats Card (Extra Bento Element) -->
+<div class="bg-primary-container/10 p-6 rounded-2xl space-y-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">data_usage</span>
+<h4 class="text-sm font-bold text-primary tracking-tight">Monthly Processing</h4>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[11px] font-bold">
+<span>REPORTS GENERATED</span>
+<span class="text-primary">84/100</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 84%"></div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+</body></html>

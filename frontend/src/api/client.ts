@@ -12,11 +12,12 @@ function buildUrl(path: string): string {
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
   try {
     const method = (init?.method || 'GET').toUpperCase()
+    const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
     const response = await fetch(buildUrl(path), {
       cache: method === 'GET' ? 'no-store' : init?.cache,
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...(method === 'GET' ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } : {}),
         ...(init?.headers ?? {}),
       },
