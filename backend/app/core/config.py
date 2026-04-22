@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     drive_supports_all_drives: bool = True
     drive_include_items_from_all_drives: bool = True
     drive_page_size: int = 1000
+    enable_legacy_processing_flow: bool = False
 
     poll_interval_seconds: int = 60
 
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
 
     local_download_dir: str = "tmp/downloads"
     results_log_path: str = "tmp/results.jsonl"
+    report_artifacts_dir: str = "tmp/reports"
+    report_processor_version: str = "v1"
 
     redis_url: str = "redis://localhost:6379/0"
     rq_job_timeout_seconds: int = 900

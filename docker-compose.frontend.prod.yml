@@ -20,6 +20,7 @@ services:
       API_UPSTREAM: ${API_UPSTREAM:-https://api.recibox.com.ar}
       API_UPSTREAM_HOST: ${API_UPSTREAM_HOST:-api.recibox.com.ar}
       VITE_APP_ENV: prod
+      VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED: ${VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED:-false}
     expose:
       - "80"
     networks:

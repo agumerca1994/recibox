@@ -16,3 +16,4 @@ rq>=1.16
 redis>=5.0
 firebase-admin>=6.5
 psycopg[binary]>=3.2
+openpyxl>=3.1

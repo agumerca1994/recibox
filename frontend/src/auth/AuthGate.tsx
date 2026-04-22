@@ -66,7 +66,7 @@ export default function AuthGate({ children }: Props) {
             throw new Error(text || `HTTP ${response.status}`)
           }
           const payload = (await response.json()) as { tenant_id?: string }
-          const tenantId = (payload.tenant_id || '').trim()
+          const tenantId = (payload.tenant_id || '').trim().toLowerCase()
           if (!tenantId) {
             throw new Error('Backend no devolvio tenant_id')
           }
