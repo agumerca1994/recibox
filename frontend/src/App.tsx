@@ -86,7 +86,11 @@ import type {
   TemplateGroup,
   TemplateSummary,
 } from './types/api'
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 const defaultTenant = normalizeTenantId(import.meta.env.VITE_TENANT_ID || 'acme') || 'acme'
 const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
 const pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
@@ -112,7 +116,11 @@ function isPdfWorkerLoadError(error: unknown): boolean {
     message.includes('fake worker')
   )
 }
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 type OAuthMessage = {
   source?: string
   ok?: boolean
@@ -125,12 +133,20 @@ type FloatingMenuPosition = {
   left: number
   openUp?: boolean
 }
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 type Section = 'cuenta' | 'procesar' | 'nomina' | 'reportes' | 'configuracion'
 type ProcessState = 'running' | 'success' | 'error' | 'paused'
 type SortOrder = 'asc' | 'desc'
 type ProcessingMode = 'default' | 'template'
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 type ProcessItem = {
   id: string
   jobId: string
@@ -140,6 +156,7 @@ type ProcessItem = {
   createdAt: number
   createdAtIso: string | null
 }
+<<<<<<< Updated upstream
 
 type RunMetrics = {
   totalProcessed: number | null
@@ -164,6 +181,32 @@ type PendingStorageAction =
   | { kind: 'create' }
   | { kind: 'adopt'; folderId: string; folderName: string }
 
+=======
+
+type RunMetrics = {
+  totalProcessed: number | null
+  success: number | null
+  error: number | null
+  flowStatus: string | null
+  message: string | null
+  logPath: string | null
+}
+
+type StorageStructureInfo = {
+  parentId: string
+  reciboxFolderId: string
+  inputFolderId: string
+}
+
+type PendingStructureData = {
+  parentId: string
+}
+
+type PendingStorageAction =
+  | { kind: 'create' }
+  | { kind: 'adopt'; folderId: string; folderName: string }
+
+>>>>>>> Stashed changes
 type AutomationRulesSnapshot = {
   cronDateTime: string
   retryOnError: string
@@ -854,6 +897,7 @@ function RuleSortableChip({ nodeId, part, fieldOptions, saving, onLiteralChange,
 
 const employeeNameCollator = new Intl.Collator('es', {
   sensitivity: 'base',
+<<<<<<< Updated upstream
   numeric: true,
   ignorePunctuation: true,
 })
@@ -868,6 +912,22 @@ function normalizeSearchText(value: string): string {
 }
 
 
+=======
+  numeric: true,
+  ignorePunctuation: true,
+})
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+
+>>>>>>> Stashed changes
 function compareEmployeeFolders(a: DriveFolder, b: DriveFolder): number {
   const cmp = employeeNameCollator.compare(normalizeSearchText(a.name), normalizeSearchText(b.name))
   if (cmp !== 0) {
@@ -883,7 +943,11 @@ function compareTemplateGroups(a: TemplateGroup, b: TemplateGroup): number {
   }
   return a.group_id.localeCompare(b.group_id)
 }
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 function mapProcessRunItem(record: ProcessRunRecord): ProcessItem {
   const createdAtIso = record.created_at || record.detail?.created_at || null
   const createdAt = createdAtIso ? new Date(createdAtIso).getTime() : 0
@@ -915,7 +979,11 @@ function formatProcessName(item: ProcessItem): string {
   const timestamp = item.createdAtIso || item.detail?.created_at || null
   return `${item.name} - ${formatDateTime(timestamp)}`
 }
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 function extractRunMetrics(detail: JobStatusResponse | null): RunMetrics {
   const asNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null)
   const asText = (value: unknown): string | null => (typeof value === 'string' ? value : null)
@@ -944,6 +1012,7 @@ function extractRunMetrics(detail: JobStatusResponse | null): RunMetrics {
     logPath: asText(result.log),
   }
 }
+<<<<<<< Updated upstream
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -981,6 +1050,45 @@ function sectionFromPath(pathname: string): Section {
   if (value === '/procesar') {
     return 'procesar'
   }
+=======
+
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return 'N/D'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString()
+}
+
+function formatDuration(seconds?: number | null): string {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) {
+    return 'N/D'
+  }
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)}s`
+  }
+  const minutes = Math.floor(seconds / 60)
+  const rem = Math.round(seconds % 60)
+  return `${minutes}m ${rem}s`
+}
+
+function normalizePath(pathname: string): string {
+  const trimmed = pathname.trim()
+  if (!trimmed || trimmed === '/') {
+    return '/'
+  }
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+}
+
+function sectionFromPath(pathname: string): Section {
+  const value = normalizePath(pathname).toLowerCase()
+  if (value === '/procesar') {
+    return 'procesar'
+  }
+>>>>>>> Stashed changes
   if (value === '/nomina') {
     return 'nomina'
   }
@@ -994,6 +1102,7 @@ function sectionFromPath(pathname: string): Section {
 }
 
 function updateSectionPath(section: Section, mode: 'push' | 'replace'): void {
+<<<<<<< Updated upstream
   if (typeof window === 'undefined') {
     return
   }
@@ -1016,6 +1125,30 @@ function getProcessSortTimestamp(item: ProcessItem): number {
       return ended
     }
   }
+=======
+  if (typeof window === 'undefined') {
+    return
+  }
+  const targetPath = sectionPathMap[section]
+  if (normalizePath(window.location.pathname) === targetPath) {
+    return
+  }
+  if (mode === 'replace') {
+    window.history.replaceState({ section }, '', targetPath)
+    return
+  }
+  window.history.pushState({ section }, '', targetPath)
+}
+
+function getProcessSortTimestamp(item: ProcessItem): number {
+  const endedRaw = item.detail?.ended_at
+  if (endedRaw) {
+    const ended = new Date(endedRaw).getTime()
+    if (!Number.isNaN(ended)) {
+      return ended
+    }
+  }
+>>>>>>> Stashed changes
   return item.createdAt
 }
 
@@ -2194,7 +2327,11 @@ async function buildPdfPreviewFromBlob(blob: Blob): Promise<{
     }
   }
 }
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
 function BackofficeApp() {
   const environmentChip = getEnvironmentChip()
   const [tenantId, setTenantId] = useState<string>(() => {
@@ -2204,6 +2341,7 @@ function BackofficeApp() {
     const saved = normalizeTenantId(window.localStorage.getItem(tenantStorageKey))
     return saved || defaultTenant
   })
+<<<<<<< Updated upstream
   const [activeSection, setActiveSection] = useState<Section>(() => {
     if (typeof window === 'undefined') {
       return 'cuenta'
@@ -2214,6 +2352,18 @@ function BackofficeApp() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
+=======
+  const [activeSection, setActiveSection] = useState<Section>(() => {
+    if (typeof window === 'undefined') {
+      return 'cuenta'
+    }
+    return sectionFromPath(window.location.pathname)
+  })
+  const [isConnected, setIsConnected] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+
+>>>>>>> Stashed changes
   const [pendingFiles, setPendingFiles] = useState<DriveFile[]>([])
   const [processLoading, setProcessLoading] = useState(false)
   const [processError, setProcessError] = useState('')
@@ -2246,12 +2396,17 @@ function BackofficeApp() {
     items: TemplateGroup[]
     loadedAt: number
   } | null>(null)
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
   const [showConnectRequiredModal, setShowConnectRequiredModal] = useState(false)
   const [showTutorialModal, setShowTutorialModal] = useState(false)
   const [oauthFeedback, setOauthFeedback] = useState<{ type: 'success' | 'error' | null; text: string }>({
     type: null,
     text: '',
+<<<<<<< Updated upstream
   })
 
   const [storageLoading, setStorageLoading] = useState(false)
@@ -2265,6 +2420,21 @@ function BackofficeApp() {
   const [rootFoldersError, setRootFoldersError] = useState('')
   const [selectedRootFolderId, setSelectedRootFolderId] = useState('')
   const [adoptingReciboxFolder, setAdoptingReciboxFolder] = useState(false)
+=======
+  })
+
+  const [storageLoading, setStorageLoading] = useState(false)
+  const [storageError, setStorageError] = useState('')
+  const [storageInfo, setStorageInfo] = useState<StorageStructureInfo | null>(null)
+  const [showCreateStructureModal, setShowCreateStructureModal] = useState(false)
+  const [pendingStructureData, setPendingStructureData] = useState<PendingStructureData | null>(null)
+  const [showChooseReciboxModal, setShowChooseReciboxModal] = useState(false)
+  const [rootFolders, setRootFolders] = useState<DriveFolder[]>([])
+  const [rootFoldersLoading, setRootFoldersLoading] = useState(false)
+  const [rootFoldersError, setRootFoldersError] = useState('')
+  const [selectedRootFolderId, setSelectedRootFolderId] = useState('')
+  const [adoptingReciboxFolder, setAdoptingReciboxFolder] = useState(false)
+>>>>>>> Stashed changes
   const [showStorageConfirmModal, setShowStorageConfirmModal] = useState(false)
   const [pendingStorageAction, setPendingStorageAction] = useState<PendingStorageAction | null>(null)
   const [templatesLoading, setTemplatesLoading] = useState(false)
@@ -2314,14 +2484,23 @@ function BackofficeApp() {
   const [notifyOnFailure, setNotifyOnFailure] = useState(false)
   const [, setAutomationRulesInitial] = useState<AutomationRulesSnapshot | null>(null)
   const [, setAutomationRulesSaving] = useState(false)
+<<<<<<< Updated upstream
   const [automationRulesSuccess, setAutomationRulesSuccess] = useState('')
+=======
+  const [automationRulesSuccess, setAutomationRulesSuccess] = useState('')
+>>>>>>> Stashed changes
   const [showProfilePopover, setShowProfilePopover] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [authEmail] = useState<string>(() => {
     if (typeof window === 'undefined') {
       return ''
+<<<<<<< Updated upstream
     }
     return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
+=======
+    }
+    return window.localStorage.getItem(authEmailStorageKey)?.trim() || ''
+>>>>>>> Stashed changes
   })
   const pendingSelectAllRef = useRef<HTMLInputElement | null>(null)
   const processItemsRef = useRef<ProcessItem[]>([])
@@ -2329,6 +2508,7 @@ function BackofficeApp() {
   const templateListMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const templateCanvasRef = useRef<HTMLDivElement | null>(null)
   const templateUploadInputRef = useRef<HTMLInputElement | null>(null)
+<<<<<<< Updated upstream
 
   const syncTenantDriveConfig = useCallback(
     async (inputFolderId: string, rootFolderId: string, reciboxFolderId: string, targetTenantId = tenantId) => {
@@ -2344,6 +2524,23 @@ function BackofficeApp() {
     [tenantId],
   )
 
+=======
+
+  const syncTenantDriveConfig = useCallback(
+    async (inputFolderId: string, rootFolderId: string, reciboxFolderId: string, targetTenantId = tenantId) => {
+      const save = await putTenantDriveConfig(targetTenantId, {
+        drive_input_folder_id: inputFolderId,
+        drive_root_folder_id: rootFolderId,
+        drive_recibox_folder_id: reciboxFolderId,
+      })
+      if (!save.ok) {
+        setStorageError('La estructura existe pero no se pudo guardar la configuración del tenant.')
+      }
+    },
+    [tenantId],
+  )
+
+>>>>>>> Stashed changes
   const refreshOAuthStatus = useCallback(
     async (showError = false, targetTenantId = tenantId): Promise<boolean> => {
       const response = await getGoogleOAuthStatus(targetTenantId)
@@ -2354,7 +2551,11 @@ function BackofficeApp() {
             type: 'error',
             text: response.error || 'No se pudo verificar el estado de OAuth.',
           })
+<<<<<<< Updated upstream
         }
+=======
+        }
+>>>>>>> Stashed changes
         return false
       }
       const data = response.data
@@ -2364,6 +2565,7 @@ function BackofficeApp() {
     },
     [tenantId],
   )
+<<<<<<< Updated upstream
 
   const verifyStorageStructure = useCallback(async (targetTenantId = tenantId) => {
     setStorageLoading(true)
@@ -2402,6 +2604,46 @@ function BackofficeApp() {
     setShowCreateStructureModal(true)
   }, [tenantId, syncTenantDriveConfig])
 
+=======
+
+  const verifyStorageStructure = useCallback(async (targetTenantId = tenantId) => {
+    setStorageLoading(true)
+    setStorageError('')
+
+    const check = await checkReciboxStructure(targetTenantId, 'root')
+    if (!check.ok || !check.data) {
+      setStorageLoading(false)
+      setStorageError('No se pudo verificar la estructura de carpetas en Drive.')
+      setStorageInfo(null)
+      return
+    }
+
+    const checkData = check.data as ReciboxStructureCheckResponse
+    if (checkData.status === 'complete' && checkData.recibox_folder_id && checkData.input_folder_id) {
+      await syncTenantDriveConfig(
+        checkData.input_folder_id,
+        checkData.parent_id || 'root',
+        checkData.recibox_folder_id,
+        targetTenantId,
+      )
+      setStorageInfo({
+        parentId: checkData.parent_id,
+        reciboxFolderId: checkData.recibox_folder_id,
+        inputFolderId: checkData.input_folder_id,
+      })
+      setPendingStructureData(null)
+      setShowCreateStructureModal(false)
+      setStorageLoading(false)
+      return
+    }
+
+    setStorageInfo(null)
+    setStorageLoading(false)
+    setPendingStructureData({ parentId: checkData.parent_id || 'root' })
+    setShowCreateStructureModal(true)
+  }, [tenantId, syncTenantDriveConfig])
+
+>>>>>>> Stashed changes
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
@@ -2478,6 +2720,7 @@ function BackofficeApp() {
 
   useEffect(() => {
     updateSectionPath(activeSection, 'replace')
+<<<<<<< Updated upstream
     // Run once to normalize initial path (e.g. "/" -> "/cuentas").
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -2592,11 +2835,128 @@ function BackofficeApp() {
     setPendingStorageAction(null)
   }, [])
 
+=======
+    // Run once to normalize initial path (e.g. "/" -> "/cuentas").
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const createStorageStructure = useCallback(async () => {
+    const parentId = pendingStructureData?.parentId || 'root'
+    setStorageLoading(true)
+    setStorageError('')
+    const create = await createReciboxStructure(tenantId, parentId)
+    setStorageLoading(false)
+    if (!create.ok || !create.data) {
+      setStorageError('No se pudo crear la estructura /root/RECIBOX/#0 INPUT.')
+      setStorageInfo(null)
+      return
+    }
+
+    setStorageInfo({
+      parentId: create.data.parent_id,
+      reciboxFolderId: create.data.root_folder.id,
+      inputFolderId: create.data.input_folder.id,
+    })
+    await syncTenantDriveConfig(
+      create.data.input_folder.id,
+      create.data.parent_id || parentId,
+      create.data.root_folder.id,
+    )
+    setPendingStructureData(null)
+    setShowCreateStructureModal(false)
+  }, [tenantId, pendingStructureData, syncTenantDriveConfig])
+
+  const openChooseReciboxModal = useCallback(async () => {
+    const parentId = pendingStructureData?.parentId || 'root'
+    setShowChooseReciboxModal(true)
+    setRootFoldersLoading(true)
+    setRootFoldersError('')
+    setSelectedRootFolderId('')
+    const response = await listPickerFolders(tenantId, parentId)
+    setRootFoldersLoading(false)
+
+    if (!response.ok || !response.data) {
+      setRootFolders([])
+      setRootFoldersError(response.error || 'No se pudieron listar las carpetas en /root.')
+      return
+    }
+
+    const folders = [...(response.data.folders || [])].sort(compareEmployeeFolders)
+    setRootFolders(folders)
+    if (folders.length > 0) {
+      setSelectedRootFolderId(folders[0].id)
+    }
+  }, [tenantId, pendingStructureData])
+
+  const adoptSelectedRootFolder = useCallback(async (folderId: string) => {
+    const parentId = pendingStructureData?.parentId || 'root'
+
+    setAdoptingReciboxFolder(true)
+    setStorageError('')
+    setRootFoldersError('')
+    const response = await adoptReciboxFolder(tenantId, folderId, parentId)
+    setAdoptingReciboxFolder(false)
+
+    if (!response.ok || !response.data) {
+      setRootFoldersError(response.error || 'No se pudo renombrar la carpeta seleccionada.')
+      return
+    }
+
+    setStorageInfo({
+      parentId: response.data.parent_id,
+      reciboxFolderId: response.data.root_folder.id,
+      inputFolderId: response.data.input_folder.id,
+    })
+    setPendingStructureData(null)
+    setShowChooseReciboxModal(false)
+    setShowCreateStructureModal(false)
+  }, [tenantId, pendingStructureData])
+
+  const requestCreateStorageStructure = useCallback(() => {
+    setPendingStorageAction({ kind: 'create' })
+    setShowStorageConfirmModal(true)
+  }, [])
+
+  const requestAdoptSelectedRootFolder = useCallback(() => {
+    if (!selectedRootFolderId) {
+      setRootFoldersError('Selecciona una carpeta.')
+      return
+    }
+    const selectedFolder = rootFolders.find((folder) => folder.id === selectedRootFolderId)
+    setPendingStorageAction({
+      kind: 'adopt',
+      folderId: selectedRootFolderId,
+      folderName: selectedFolder?.name || 'la carpeta seleccionada',
+    })
+    setShowStorageConfirmModal(true)
+  }, [rootFolders, selectedRootFolderId])
+
+  const confirmStorageAction = useCallback(async () => {
+    const action = pendingStorageAction
+    if (!action) {
+      return
+    }
+    setShowStorageConfirmModal(false)
+    setPendingStorageAction(null)
+    if (action.kind === 'create') {
+      await createStorageStructure()
+      return
+    }
+    await adoptSelectedRootFolder(action.folderId)
+  }, [pendingStorageAction, createStorageStructure, adoptSelectedRootFolder])
+
+  const cancelStorageAction = useCallback(() => {
+    setShowStorageConfirmModal(false)
+    setPendingStorageAction(null)
+  }, [])
+
+>>>>>>> Stashed changes
   const loadAutomationRules = useCallback(() => {
     const automationDefaults: AutomationRulesSnapshot = {
       cronDateTime: '',
       retryOnError: '0',
       notifyOnFailure: false,
+<<<<<<< Updated upstream
     }
     if (typeof window === 'undefined') {
       setCronDateTime(automationDefaults.cronDateTime)
@@ -2623,6 +2983,34 @@ function BackofficeApp() {
       }
       setCronDateTime(snapshot.cronDateTime)
       setRetryOnError(snapshot.retryOnError)
+=======
+    }
+    if (typeof window === 'undefined') {
+      setCronDateTime(automationDefaults.cronDateTime)
+      setRetryOnError(automationDefaults.retryOnError)
+      setNotifyOnFailure(automationDefaults.notifyOnFailure)
+      setAutomationRulesInitial(automationDefaults)
+      return
+    }
+    const storageKey = `recibox:automation-rules:${tenantId}`
+    const saved = window.localStorage.getItem(storageKey)
+    if (!saved) {
+      setCronDateTime(automationDefaults.cronDateTime)
+      setRetryOnError(automationDefaults.retryOnError)
+      setNotifyOnFailure(automationDefaults.notifyOnFailure)
+      setAutomationRulesInitial(automationDefaults)
+      return
+    }
+    try {
+      const parsed = JSON.parse(saved) as Partial<AutomationRulesSnapshot>
+      const snapshot: AutomationRulesSnapshot = {
+        cronDateTime: String(parsed.cronDateTime || ''),
+        retryOnError: ['0', '1', '2', '3'].includes(String(parsed.retryOnError)) ? String(parsed.retryOnError) : '0',
+        notifyOnFailure: Boolean(parsed.notifyOnFailure),
+      }
+      setCronDateTime(snapshot.cronDateTime)
+      setRetryOnError(snapshot.retryOnError)
+>>>>>>> Stashed changes
       setNotifyOnFailure(snapshot.notifyOnFailure)
       setAutomationRulesInitial(snapshot)
     } catch {
@@ -3689,6 +4077,7 @@ function BackofficeApp() {
   const saveAutomationRules = useCallback(async () => {
     setAutomationRulesSaving(true)
     if (typeof window !== 'undefined') {
+<<<<<<< Updated upstream
       const storageKey = `recibox:automation-rules:${tenantId}`
       window.localStorage.setItem(
         storageKey,
@@ -3721,12 +4110,47 @@ function BackofficeApp() {
       if (!event.data || event.data.source !== 'recibox-oauth') {
         return
       }
+=======
+      const storageKey = `recibox:automation-rules:${tenantId}`
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          cronDateTime,
+          retryOnError,
+          notifyOnFailure,
+        }),
+      )
+    }
+    const snapshot: AutomationRulesSnapshot = { cronDateTime, retryOnError, notifyOnFailure }
+    setAutomationRulesInitial(snapshot)
+    setAutomationRulesSuccess('Reglas guardadas.')
+    setAutomationRulesSaving(false)
+  }, [tenantId, cronDateTime, retryOnError, notifyOnFailure])
+
+  useEffect(() => {
+    async function init() {
+      const connected = await refreshOAuthStatus(false)
+      if (connected) {
+        await verifyStorageStructure()
+      }
+      setInitialLoading(false)
+    }
+    init()
+  }, [refreshOAuthStatus, verifyStorageStructure])
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent<OAuthMessage>) {
+      if (!event.data || event.data.source !== 'recibox-oauth') {
+        return
+      }
+>>>>>>> Stashed changes
       if (event.data.ok) {
         const oauthTenantId = normalizeTenantId(event.data.tenant_id)
         const resolvedTenantId = oauthTenantId || tenantId
         if (oauthTenantId) {
           setTenantId(oauthTenantId)
         }
+<<<<<<< Updated upstream
         refreshOAuthStatus(false, resolvedTenantId).then((connected) => {
           if (connected) {
             verifyStorageStructure(resolvedTenantId)
@@ -3821,11 +4245,108 @@ function BackofficeApp() {
     setStorageInfo(null)
     setStorageError('')
     setPendingStructureData(null)
+=======
+        refreshOAuthStatus(false, resolvedTenantId).then((connected) => {
+          if (connected) {
+            verifyStorageStructure(resolvedTenantId)
+          }
+        })
+        setOauthFeedback({ type: null, text: '' })
+        return
+      }
+      setOauthFeedback({
+        type: 'error',
+        text: event.data.message || 'No se pudo completar la conexion OAuth.',
+      })
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [refreshOAuthStatus, tenantId, verifyStorageStructure])
+
+  useEffect(() => {
+    function onDocumentPointerDown(event: MouseEvent) {
+      if (!profilePopoverRef.current) {
+        return
+      }
+      const target = event.target as Node | null
+      if (!target || profilePopoverRef.current.contains(target)) {
+        return
+      }
+      setShowProfilePopover(false)
+    }
+
+    if (!showProfilePopover) {
+      return
+    }
+
+    document.addEventListener('mousedown', onDocumentPointerDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocumentPointerDown)
+    }
+  }, [showProfilePopover])
+
+  function connectGoogleDrive() {
+    const nextTenantId = normalizeTenantId(tenantId || window.localStorage.getItem(tenantStorageKey) || defaultTenant) || defaultTenant
+    setTenantId(nextTenantId)
+    const url = `${apiBasePath}/auth/google/login?tenant_id=${encodeURIComponent(nextTenantId)}&popup=true`
+    const width = 560
+    const height = 700
+    const left = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2))
+    const top = Math.max(0, window.screenY + Math.round((window.outerHeight - height) / 2))
+    const popup = window.open(
+      url,
+      'recibox-google-oauth',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+    )
+
+    if (!popup) {
+      window.location.href = url
+      return
+    }
+
+    setOauthFeedback({ type: null, text: '' })
+  }
+
+  async function logoutCurrentSession() {
+    try {
+      await signOutFirebaseUser()
+    } catch (error) {
+      setOauthFeedback({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo cerrar sesión.',
+      })
+    } finally {
+      setShowProfilePopover(false)
+    }
+  }
+
+  async function disconnectGoogleDrive() {
+    setActionLoading(true)
+    const response = await unlinkGoogleOAuth(tenantId)
+    setActionLoading(false)
+
+    if (!response.ok) {
+      setOauthFeedback({
+        type: 'error',
+        text: response.error || 'No se pudo desconectar la cuenta.',
+      })
+      return
+    }
+
+    setIsConnected(false)
+    applySectionChange('cuenta', 'replace')
+    setOauthFeedback({ type: null, text: '' })
+    setStorageInfo(null)
+    setStorageError('')
+    setPendingStructureData(null)
+>>>>>>> Stashed changes
     setShowCreateStructureModal(false)
     setProcessItems([])
     setSelectedProcess(null)
     setShowProcessModeModal(false)
   }
+<<<<<<< Updated upstream
 
   const loadPendingFiles = useCallback(async () => {
     if (!isConnected) {
@@ -3840,6 +4361,22 @@ function BackofficeApp() {
     const response = await listDriveFiles(tenantId)
     setProcessLoading(false)
 
+=======
+
+  const loadPendingFiles = useCallback(async () => {
+    if (!isConnected) {
+      setPendingFiles([])
+      setProcessError('')
+      setShowConnectRequiredModal(true)
+      return
+    }
+
+    setProcessLoading(true)
+    setProcessError('')
+    const response = await listDriveFiles(tenantId)
+    setProcessLoading(false)
+
+>>>>>>> Stashed changes
     if (!response.ok) {
       setPendingFiles([])
       const lowered = (response.error || '').toLowerCase()
@@ -3850,8 +4387,13 @@ function BackofficeApp() {
       } else {
         setProcessError('No se pudieron listar los archivos de INPUT.')
       }
+<<<<<<< Updated upstream
       return
     }
+=======
+      return
+    }
+>>>>>>> Stashed changes
 
     setPendingFiles(response.data?.files ?? [])
   }, [tenantId, isConnected])
@@ -3992,6 +4534,7 @@ function BackofficeApp() {
     const nextFolderId = nextStack[nextStack.length - 1]?.id || currentGroup?.drive_folder_id || ''
     await loadNominaFolderContents(nextFolderId)
   }, [loadNominaFolderContents, nominaFolderStack, nominaSelectedGroupId, templateGroups])
+<<<<<<< Updated upstream
 
   const refreshPendingFiles = useCallback(() => {
     void loadPendingFiles()
@@ -4010,6 +4553,26 @@ function BackofficeApp() {
       if (mode !== 'none') {
         updateSectionPath(section, mode)
       }
+=======
+
+  const refreshPendingFiles = useCallback(() => {
+    void loadPendingFiles()
+  }, [loadPendingFiles])
+
+  const applySectionChange = useCallback(
+    (section: Section, mode: 'push' | 'replace' | 'none' = 'push') => {
+      if ((section === 'procesar' || section === 'nomina' || section === 'reportes' || section === 'configuracion') && !isConnected) {
+        setShowConnectRequiredModal(true)
+        setActiveSection('cuenta')
+        updateSectionPath('cuenta', 'replace')
+        return
+      }
+
+      setActiveSection(section)
+      if (mode !== 'none') {
+        updateSectionPath(section, mode)
+      }
+>>>>>>> Stashed changes
       if (section === 'procesar') {
         refreshPendingFiles()
         void loadTemplatesForTenant(false)
@@ -4017,11 +4580,16 @@ function BackofficeApp() {
     },
     [isConnected, loadTemplatesForTenant, refreshPendingFiles],
   )
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
   useEffect(() => {
     if (activeSection !== 'procesar' || !isConnected) {
       return
     }
+<<<<<<< Updated upstream
 
     function refreshOnFocus() {
       refreshPendingFiles()
@@ -4039,6 +4607,25 @@ function BackofficeApp() {
       window.removeEventListener('focus', refreshOnFocus)
       document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
+=======
+
+    function refreshOnFocus() {
+      refreshPendingFiles()
+    }
+
+    function refreshOnVisibility() {
+      if (document.visibilityState === 'visible') {
+        refreshPendingFiles()
+      }
+    }
+
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnVisibility)
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnVisibility)
+    }
+>>>>>>> Stashed changes
   }, [activeSection, isConnected, refreshPendingFiles])
 
   useEffect(() => {
@@ -4116,7 +4703,11 @@ function BackofficeApp() {
   useEffect(() => {
     if (activeSection !== 'procesar' || !isConnected) {
       return
+<<<<<<< Updated upstream
     }
+=======
+    }
+>>>>>>> Stashed changes
     const timer = window.setTimeout(() => {
       refreshPendingFiles()
     }, 0)
@@ -4146,6 +4737,7 @@ function BackofficeApp() {
   useEffect(() => {
     processItemsRef.current = processItems
   }, [processItems])
+<<<<<<< Updated upstream
 
   useEffect(() => {
     function onPopState() {
@@ -4165,6 +4757,27 @@ function BackofficeApp() {
     }
   }, [activeSection, applySectionChange, initialLoading, isConnected])
 
+=======
+
+  useEffect(() => {
+    function onPopState() {
+      applySectionChange(sectionFromPath(window.location.pathname), 'none')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [applySectionChange])
+
+  useEffect(() => {
+    if (initialLoading || isConnected) {
+      return
+    }
+    if (activeSection === 'procesar' || activeSection === 'nomina' || activeSection === 'configuracion') {
+      setShowConnectRequiredModal(true)
+      applySectionChange('cuenta', 'replace')
+    }
+  }, [activeSection, applySectionChange, initialLoading, isConnected])
+
+>>>>>>> Stashed changes
   function handleSectionChange(section: Section) {
     applySectionChange(section, 'push')
   }
@@ -4254,6 +4867,7 @@ function BackofficeApp() {
     setProcessError('')
     await loadProcessRuns()
   }
+<<<<<<< Updated upstream
 
   function openInputFolder() {
     if (!storageInfo?.inputFolderId) {
@@ -4279,6 +4893,33 @@ function BackofficeApp() {
     anchor.target = '_blank'
     anchor.rel = 'noopener noreferrer'
     document.body.appendChild(anchor)
+=======
+
+  function openInputFolder() {
+    if (!storageInfo?.inputFolderId) {
+      setProcessError('No se pudo resolver la carpeta INPUT para abrirla.')
+      return
+    }
+    window.open(`https://drive.google.com/drive/folders/${storageInfo.inputFolderId}`, '_blank')
+    setTimeout(() => {
+      if (activeSection === 'procesar') {
+        refreshPendingFiles()
+      }
+    }, 800)
+  }
+
+  function openDriveFile(fileId: string) {
+    window.open(`https://drive.google.com/file/d/${fileId}/view`, '_blank')
+  }
+
+  function downloadDriveFile(fileId: string) {
+    const url = `${apiBasePath}/drive/files/${encodeURIComponent(fileId)}/download?tenant_id=${encodeURIComponent(tenantId)}`
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.target = '_blank'
+    anchor.rel = 'noopener noreferrer'
+    document.body.appendChild(anchor)
+>>>>>>> Stashed changes
     anchor.click()
     anchor.remove()
   }
@@ -4343,7 +4984,11 @@ function BackofficeApp() {
       .filter((item) => item.state === 'success' || item.state === 'error')
       .sort((a, b) => getProcessSortTimestamp(b) - getProcessSortTimestamp(a))[0] ?? null
   }, [processItems])
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
   const latestMetrics = useMemo(() => extractRunMetrics(latestTerminalProcess?.detail ?? null), [latestTerminalProcess])
 
   const processedCount = latestMetrics.success ?? 0
@@ -5297,7 +5942,11 @@ function BackofficeApp() {
             </div>
           </main>
         )}
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
         {activeSection === 'nomina' && isConnected && (
           <main className="content process-content nomina-screen">
             <section className="section-page-header" aria-label="Encabezado de documentos">
@@ -5418,7 +6067,11 @@ function BackofficeApp() {
                         <col />
                         <col className="files-action-col" />
                       </colgroup>
+<<<<<<< Updated upstream
                     <tbody>
+=======
+                    <tbody>
+>>>>>>> Stashed changes
                       {nominaFilesLoading && (
                         <tr>
                           <td colSpan={2}>Cargando archivos...</td>
@@ -5434,10 +6087,17 @@ function BackofficeApp() {
                           <td colSpan={2}>Sin archivos en esta ubicacion.</td>
                         </tr>
                       )}
+<<<<<<< Updated upstream
                       {!nominaFilesLoading &&
                         nominaFiles.map((file) => (
                           <tr key={file.id}>
                             <td title={file.name}>{file.name}</td>
+=======
+                      {!nominaFilesLoading &&
+                        nominaFiles.map((file) => (
+                          <tr key={file.id}>
+                            <td title={file.name}>{file.name}</td>
+>>>>>>> Stashed changes
                               <td className="doc-actions">
                                 <button
                                   type="button"
@@ -5458,6 +6118,7 @@ function BackofficeApp() {
                                   Descargar
                                 </button>
                               </td>
+<<<<<<< Updated upstream
                           </tr>
                         ))}
                     </tbody>
@@ -5466,6 +6127,16 @@ function BackofficeApp() {
                 {nominaError && <p className="oauth-feedback error">{nominaError}</p>}
               </section>
             </div>
+=======
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+                {nominaError && <p className="oauth-feedback error">{nominaError}</p>}
+              </section>
+            </div>
+>>>>>>> Stashed changes
           </main>
         )}
 
@@ -5477,7 +6148,11 @@ function BackofficeApp() {
           />
         )}
       </div>
+<<<<<<< Updated upstream
 
+=======
+
+>>>>>>> Stashed changes
       {showConnectRequiredModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Cuenta requerida">
           <div className="modal-card">
@@ -5629,6 +6304,7 @@ function BackofficeApp() {
 
       {showCreateStructureModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Crear estructura RECIBOX">
+<<<<<<< Updated upstream
           <div className="modal-card">
             <h3>Accion necesaria</h3>
             <p>RECIBOX necesita un espacio dentro de tu unidad de Google Drive.</p>
@@ -5743,6 +6419,122 @@ function BackofficeApp() {
         </div>
       )}
 
+=======
+          <div className="modal-card">
+            <h3>Accion necesaria</h3>
+            <p>RECIBOX necesita un espacio dentro de tu unidad de Google Drive.</p>
+            <p>Selecciona:</p>
+            <ul className="storage-options-list">
+              <li>
+                <strong>Crear:</strong> Para generar una carpeta especifica donde procesar los documentos.
+              </li>
+              <li>
+                <strong>Elegir:</strong> Si ya tenes informacion de tus colaboradores y queres usar ese espacio.
+              </li>
+            </ul>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => setShowCreateStructureModal(false)}
+                disabled={storageLoading}
+              >
+                Salir
+              </button>
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => void openChooseReciboxModal()}
+                disabled={storageLoading}
+              >
+                Elegir
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={requestCreateStorageStructure}
+                disabled={storageLoading}
+              >
+                {storageLoading ? 'Creando...' : 'Crear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChooseReciboxModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegir carpeta RECIBOX">
+          <div className="modal-card picker-modal">
+            <h3>Elegir carpeta existente</h3>
+            <p>Selecciona una carpeta en /root para renombrarla a RECIBOX.</p>
+            <div className="picker-list" role="listbox" aria-label="Carpetas disponibles en root">
+              {rootFoldersLoading && <p>Cargando carpetas...</p>}
+              {!rootFoldersLoading && rootFolders.length === 0 && !rootFoldersError && (
+                <p>No hay carpetas disponibles en /root.</p>
+              )}
+              {!rootFoldersLoading &&
+                rootFolders.map((folder) => (
+                  <label key={folder.id} className="picker-option">
+                    <input
+                      type="radio"
+                      name="recibox-root-folder"
+                      value={folder.id}
+                      checked={selectedRootFolderId === folder.id}
+                      onChange={() => setSelectedRootFolderId(folder.id)}
+                    />
+                    <span title={folder.name}>{folder.name}</span>
+                  </label>
+                ))}
+            </div>
+            {rootFoldersError && <p className="oauth-feedback error">{rootFoldersError}</p>}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => setShowChooseReciboxModal(false)}
+                disabled={adoptingReciboxFolder}
+              >
+                Salir
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={requestAdoptSelectedRootFolder}
+                disabled={adoptingReciboxFolder || rootFoldersLoading || rootFolders.length === 0}
+              >
+                {adoptingReciboxFolder ? 'Renombrando...' : 'Renombrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStorageConfirmModal && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Confirmar accion">
+          <div className="modal-card">
+            <h3>Confirmar accion</h3>
+            {pendingStorageAction?.kind === 'create' && (
+              <p>Se creara la estructura RECIBOX/#0 INPUT. ¿Deseas continuar?</p>
+            )}
+            {pendingStorageAction?.kind === 'adopt' && (
+              <p>
+                Se renombrara "{pendingStorageAction.folderName}" a RECIBOX y se creara #0 INPUT dentro. ¿Deseas
+                continuar?
+              </p>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="modal-secondary" onClick={cancelStorageAction}>
+                Cancelar
+              </button>
+              <button type="button" className="modal-primary" onClick={() => void confirmStorageAction()}>
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+>>>>>>> Stashed changes
       {showProcessModeModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Elegí una plantilla para procesar tus archivos">
           <div className="modal-card process-mode-modal">
@@ -6621,12 +7413,21 @@ function BackofficeApp() {
             <div className="modal-actions">
               <button type="button" className="modal-primary" onClick={() => setSelectedProcess(null)}>
                 Cerrar
+<<<<<<< Updated upstream
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
+=======
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+>>>>>>> Stashed changes
   )
 }
 
