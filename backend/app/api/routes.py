@@ -230,6 +230,7 @@ class ReportColumnPayload(BaseModel):
     source_type: str
     system_key: str | None = None
     template_mappings: dict[str, str] | None = None
+    format_parts: list[dict] | None = None
     order: int | None = None
 
 
@@ -255,6 +256,7 @@ class ReportFileTemplateBindingPayload(BaseModel):
 
 class ReportRunCreatePayload(BaseModel):
     report_id: str | None = None
+    report_name: str | None = None
     group_id: str
     file_ids: list[str]
     output_format: str = "csv"
@@ -1146,7 +1148,7 @@ async def get_report_layouts_endpoint(
     try:
         layouts = list_report_layouts(tenant_id=tenant_id, include_inactive=include_inactive)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"List report layouts failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"List reports failed: {exc}")
     return {
         "tenant_id": tenant_id,
         "count": len(layouts),
@@ -1177,7 +1179,7 @@ async def post_report_layout(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Create report layout failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Create report failed: {exc}")
     return {"status": "ok", "tenant_id": tenant_id, "report": serialize_report_layout(layout)}
 
 
@@ -1191,9 +1193,9 @@ async def get_report_layout_endpoint(
     try:
         layout = get_report_layout(tenant_id=tenant_id, report_id=report_id)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Get report layout failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Get report failed: {exc}")
     if layout is None:
-        raise HTTPException(status_code=404, detail="Report layout not found")
+        raise HTTPException(status_code=404, detail="Report not found")
     return serialize_report_layout(layout)
 
 
@@ -1222,9 +1224,9 @@ async def put_report_layout_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Update report layout failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Update report failed: {exc}")
     if layout is None:
-        raise HTTPException(status_code=404, detail="Report layout not found")
+        raise HTTPException(status_code=404, detail="Report not found")
     return {"status": "ok", "tenant_id": tenant_id, "report": serialize_report_layout(layout)}
 
 
@@ -1238,9 +1240,9 @@ async def delete_report_layout_endpoint(
     try:
         deleted = delete_report_layout(tenant_id=tenant_id, report_id=report_id)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Delete report layout failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Delete report failed: {exc}")
     if not deleted:
-        raise HTTPException(status_code=404, detail="Report layout not found")
+        raise HTTPException(status_code=404, detail="Report not found")
     return {"status": "ok", "tenant_id": tenant_id, "report_id": report_id, "deleted": True}
 
 
@@ -1274,9 +1276,9 @@ async def post_report_run_endpoint(
     if payload.report_id:
         layout = get_report_layout(tenant_id=tenant_id, report_id=payload.report_id)
         if layout is None:
-            raise HTTPException(status_code=404, detail="Report layout not found")
+            raise HTTPException(status_code=404, detail="Report not found")
         if str(layout.default_group_id or "").strip() != str(payload.group_id or "").strip():
-            raise HTTPException(status_code=400, detail="Selected files must belong to the layout group")
+            raise HTTPException(status_code=400, detail="Selected files must belong to the report group")
 
     try:
         resolved = resolve_report_selection(
@@ -1322,6 +1324,7 @@ async def post_report_run_endpoint(
         output_format=normalized_output_format,
         csv_delimiter=normalized_csv_delimiter,
         columns=normalized_columns,
+        report_name=payload.report_name,
         job_timeout=settings.rq_job_timeout_seconds,
     )
     job.meta["tenant_id"] = tenant_id
@@ -1444,6 +1447,7 @@ async def reprocess_report_run_endpoint(
         output_format=normalized_output_format,
         csv_delimiter=normalized_csv_delimiter,
         columns=normalized_columns,
+        report_name=existing.report_name or (Path(existing.artifact_filename).stem if existing.artifact_filename else None),
         job_timeout=settings.rq_job_timeout_seconds,
     )
     job.meta["tenant_id"] = tenant_id

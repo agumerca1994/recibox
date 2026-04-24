@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUp,
   CheckCircle2,
+  ChevronRight,
   Download,
   Filter,
   File,
@@ -49,6 +50,7 @@ import type {
   DriveFile,
   DriveFolder,
   ReportColumn,
+  ReportColumnFormatPart,
   ReportLayout,
   ReportOutputFormat,
   ReportRunRecord,
@@ -81,22 +83,99 @@ function createDraftColumn(index: number): ReportColumn {
     column_id: crypto.randomUUID(),
     label: `Columna ${index}`,
     value_type: 'string',
-    source_type: 'template_field',
+    source_type: 'composite',
     system_key: null,
     template_mappings: {},
+    format_parts: [],
     order: index,
   }
 }
 
+function createTextFormatPart(value = 'Texto'): ReportColumnFormatPart {
+  return {
+    part_id: crypto.randomUUID(),
+    part_type: 'text',
+    value,
+  }
+}
+
+function createSpaceFormatPart(): ReportColumnFormatPart {
+  return {
+    part_id: crypto.randomUUID(),
+    part_type: 'space',
+    value: ' ',
+  }
+}
+
+function createFieldFormatPart(templateId: string, fieldKey: string): ReportColumnFormatPart {
+  return {
+    part_id: crypto.randomUUID(),
+    part_type: 'field',
+    template_id: templateId,
+    field_key: fieldKey,
+  }
+}
+
+function normalizeFormatParts(parts: ReportColumnFormatPart[] | undefined): ReportColumnFormatPart[] {
+  if (!Array.isArray(parts)) {
+    return []
+  }
+  const normalized: ReportColumnFormatPart[] = []
+  parts.forEach((part) => {
+    const partId = part.part_id || crypto.randomUUID()
+    if (part.part_type === 'text') {
+      normalized.push({
+        part_id: partId,
+        part_type: 'text',
+        value: typeof part.value === 'string' ? part.value : '',
+      })
+      return
+    }
+    if (part.part_type === 'space') {
+      normalized.push({
+        part_id: partId,
+        part_type: 'space',
+        value: ' ',
+      })
+      return
+    }
+    if (part.part_type === 'field') {
+      normalized.push({
+        part_id: partId,
+        part_type: 'field',
+        template_id: part.template_id || '',
+        field_key: part.field_key || '',
+      })
+    }
+  })
+  return normalized
+}
+
+function mapLegacyMappingsToFormatParts(column: ReportColumn): ReportColumnFormatPart[] {
+  return Object.entries(column.template_mappings || {})
+    .filter(([, fieldKey]) => String(fieldKey || '').trim())
+    .map(([templateId, fieldKey]) => createFieldFormatPart(templateId, fieldKey))
+}
+
 function normalizeDraftColumns(columns: ReportColumn[]): ReportColumn[] {
-  return columns.map((column, index) => ({
-    ...column,
-    column_id: column.column_id || crypto.randomUUID(),
-    source_type: 'template_field',
-    system_key: null,
-    template_mappings: column.template_mappings || {},
-    order: index + 1,
-  }))
+  return columns.map((column, index) => {
+    const isSystemColumn = column.source_type === 'system'
+    const formatParts =
+      column.source_type === 'composite'
+        ? normalizeFormatParts(column.format_parts)
+        : column.source_type === 'template_field'
+          ? mapLegacyMappingsToFormatParts(column)
+          : []
+    return {
+      ...column,
+      column_id: column.column_id || crypto.randomUUID(),
+      source_type: isSystemColumn ? 'system' : 'composite',
+      system_key: isSystemColumn ? column.system_key || null : null,
+      template_mappings: column.template_mappings || {},
+      format_parts: formatParts,
+      order: index + 1,
+    }
+  })
 }
 
 function describeRunProgress(run: ReportRunRecord): string | null {
@@ -201,6 +280,87 @@ function getTemplateFieldOptionLabel(field: ReportSelectionTemplate['fields'][nu
   return String(field.key || '').trim() || 'Campo sin nombre'
 }
 
+function resolveFormatFieldLabel(
+  part: ReportColumnFormatPart,
+  templates: ReportSelectionTemplate[],
+): string {
+  const template = templates.find((item) => item.template_id === part.template_id)
+  const field = template?.fields.find((item) => item.key === part.field_key)
+  if (template && field) {
+    return `${template.name}: ${getTemplateFieldOptionLabel(field)}`
+  }
+  if (part.field_key) {
+    return template ? `${template.name}: ${part.field_key}` : part.field_key
+  }
+  return 'Campo incompleto'
+}
+
+function resolveFormatFieldDisplayName(
+  part: ReportColumnFormatPart,
+  templates: ReportSelectionTemplate[],
+): string {
+  const template = templates.find((item) => item.template_id === part.template_id)
+  const field = template?.fields.find((item) => item.key === part.field_key)
+  if (field) {
+    return getTemplateFieldOptionLabel(field)
+  }
+  return String(part.field_key || '').trim() || 'Campo incompleto'
+}
+
+function describeColumnFormat(column: ReportColumn, templates: ReportSelectionTemplate[]): string {
+  const parts = normalizeFormatParts(column.format_parts)
+  if (parts.length === 0) {
+    return 'Elegir formato'
+  }
+  const labels = parts.map((part) => {
+    if (part.part_type === 'text') {
+      const value = String(part.value || '').trim()
+      return value || 'Texto'
+    }
+    if (part.part_type === 'space') {
+      return 'Espacio'
+    }
+    return resolveFormatFieldDisplayName(part, templates)
+  })
+  const visible = labels.slice(0, 3).join(' + ')
+  return parts.length > 3 ? `${visible} + ${parts.length - 3} mas` : visible
+}
+
+function getColumnFormatValidationIssues(column: ReportColumn, templates: ReportSelectionTemplate[]): string[] {
+  if (column.source_type === 'system') {
+    return column.system_key ? [] : ['Falta elegir un campo de sistema.']
+  }
+
+  const issues: string[] = []
+  const parts = normalizeFormatParts(column.format_parts)
+  if (parts.length === 0) {
+    issues.push('Falta elegir formato.')
+    return issues
+  }
+
+  parts.forEach((part, index) => {
+    if (part.part_type === 'text') {
+      if (!String(part.value || '').trim()) {
+        issues.push(`El texto ${index + 1} esta vacio.`)
+      }
+      return
+    }
+    if (part.part_type === 'space') {
+      return
+    }
+    if (!part.template_id || !part.field_key) {
+      issues.push(`El campo ${index + 1} esta incompleto.`)
+      return
+    }
+    const template = templates.find((item) => item.template_id === part.template_id)
+    if (template && !template.fields.some((field) => field.key === part.field_key)) {
+      issues.push(`El campo ${part.field_key} ya no existe en ${template.name}.`)
+    }
+  })
+
+  return issues
+}
+
 function getRunStatusMeta(status: ReportRunRecord['status']): { label: string; tone: 'success' | 'running' | 'error' } {
   if (status === 'success') {
     return { label: 'success', tone: 'success' }
@@ -257,6 +417,9 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
   const [savingLayout, setSavingLayout] = useState(false)
   const [runningReport, setRunningReport] = useState(false)
   const [showSaveLayoutDialog, setShowSaveLayoutDialog] = useState(false)
+  const [formatEditorColumnId, setFormatEditorColumnId] = useState<string | null>(null)
+  const [formatAddMenuOpen, setFormatAddMenuOpen] = useState(false)
+  const [formatFieldsMenuOpen, setFormatFieldsMenuOpen] = useState(false)
   const [bindingTemplateByFileId, setBindingTemplateByFileId] = useState<Record<string, string>>({})
   const [searchQuery, setSearchQuery] = useState('')
   const [showAllLayouts, setShowAllLayouts] = useState(false)
@@ -426,6 +589,9 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       setSelectedFileIds([])
       setResolvedSelection(null)
       setShowSaveLayoutDialog(false)
+      setFormatEditorColumnId(null)
+      setFormatAddMenuOpen(false)
+      setFormatFieldsMenuOpen(false)
       setSelectionError('')
       setSearchQuery('')
       setOutputFormat(layout?.default_output_format || 'csv')
@@ -513,8 +679,21 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
     [selectedFiles],
   )
 
-  const presentTemplates = resolvedSelection?.templates || []
-  const singleDetectedTemplate = presentTemplates.length === 1 ? presentTemplates[0] : null
+  const presentTemplates = useMemo(() => resolvedSelection?.templates || [], [resolvedSelection?.templates])
+  const activeFormatColumn = useMemo(
+    () => columns.find((column) => column.column_id === formatEditorColumnId) || null,
+    [columns, formatEditorColumnId],
+  )
+  const activeFormatParts = activeFormatColumn?.format_parts || []
+
+  useEffect(() => {
+    if (!formatEditorColumnId || activeFormatColumn) {
+      return
+    }
+    setFormatEditorColumnId(null)
+    setFormatAddMenuOpen(false)
+    setFormatFieldsMenuOpen(false)
+  }, [activeFormatColumn, formatEditorColumnId])
 
   const displayedLayouts = useMemo(
     () => (showAllLayouts ? layouts : layouts.slice(0, 2)),
@@ -578,20 +757,9 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       if (!column.label?.trim()) {
         issues.push(`${itemLabel}: falta el nombre de la columna.`)
       }
-      if (presentTemplates.length === 0) {
-        issues.push(`${itemLabel}: no hay plantillas listas en la selección actual.`)
-        return
-      }
-      for (const template of presentTemplates) {
-        const fieldKey = column.template_mappings?.[template.template_id] || ''
-        if (!fieldKey) {
-          issues.push(`${itemLabel}: falta mapear la plantilla ${template.name}.`)
-          continue
-        }
-        if (!template.fields.some((field) => field.key === fieldKey)) {
-          issues.push(`${itemLabel}: el campo elegido ya no existe en la plantilla ${template.name}.`)
-        }
-      }
+      getColumnFormatValidationIssues(column, presentTemplates).forEach((issue) => {
+        issues.push(`${itemLabel}: ${issue}`)
+      })
     })
     return issues
   }, [columns, presentTemplates])
@@ -604,20 +772,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       if (!column.label?.trim()) {
         issues.push('Falta el nombre de la columna.')
       }
-      if (presentTemplates.length === 0) {
-        issues.push('No hay plantillas listas en la selección actual.')
-      } else {
-        for (const template of presentTemplates) {
-          const fieldKey = column.template_mappings?.[template.template_id] || ''
-          if (!fieldKey) {
-            issues.push(`Falta mapear la plantilla ${template.name}.`)
-            continue
-          }
-          if (!template.fields.some((field) => field.key === fieldKey)) {
-            issues.push(`El campo elegido ya no existe en la plantilla ${template.name}.`)
-          }
-        }
-      }
+      issues.push(...getColumnFormatValidationIssues(column, presentTemplates))
       if (issues.length > 0) {
         issuesById.set(String(column.column_id), issues.map((issue) => `${itemLabel}: ${issue}`))
       }
@@ -687,15 +842,85 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
     setColumns((prev) => normalizeDraftColumns(prev.filter((item) => item.column_id !== columnId)))
   }, [])
 
+  const openFormatEditor = useCallback((columnId: string) => {
+    setFormatEditorColumnId(columnId)
+    setFormatAddMenuOpen(false)
+    setFormatFieldsMenuOpen(false)
+  }, [])
+
+  const updateColumnFormatParts = useCallback(
+    (columnId: string, updater: (parts: ReportColumnFormatPart[]) => ReportColumnFormatPart[]) => {
+      setColumns((prev) =>
+        prev.map((column) => {
+          if (column.column_id !== columnId) {
+            return column
+          }
+          return {
+            ...column,
+            source_type: 'composite',
+            system_key: null,
+            format_parts: normalizeFormatParts(updater(normalizeFormatParts(column.format_parts))),
+          }
+        }),
+      )
+    },
+    [],
+  )
+
+  const addFormatPart = useCallback(
+    (part: ReportColumnFormatPart) => {
+      if (!formatEditorColumnId) {
+        return
+      }
+      updateColumnFormatParts(formatEditorColumnId, (parts) => [...parts, part])
+      setFormatAddMenuOpen(false)
+      setFormatFieldsMenuOpen(false)
+    },
+    [formatEditorColumnId, updateColumnFormatParts],
+  )
+
+  const updateTextFormatPart = useCallback(
+    (columnId: string, partId: string, value: string) => {
+      updateColumnFormatParts(columnId, (parts) =>
+        parts.map((part) => (part.part_id === partId ? { ...part, value } : part)),
+      )
+    },
+    [updateColumnFormatParts],
+  )
+
+  const removeFormatPart = useCallback(
+    (columnId: string, partId: string) => {
+      updateColumnFormatParts(columnId, (parts) => parts.filter((part) => part.part_id !== partId))
+    },
+    [updateColumnFormatParts],
+  )
+
+  const moveFormatPart = useCallback(
+    (columnId: string, partId: string, direction: -1 | 1) => {
+      updateColumnFormatParts(columnId, (parts) => {
+        const index = parts.findIndex((part) => part.part_id === partId)
+        const targetIndex = index + direction
+        if (index < 0 || targetIndex < 0 || targetIndex >= parts.length) {
+          return parts
+        }
+        const next = [...parts]
+        const [moved] = next.splice(index, 1)
+        next.splice(targetIndex, 0, moved)
+        return next
+      })
+    },
+    [updateColumnFormatParts],
+  )
+
   const saveLayout = useCallback(async (): Promise<boolean> => {
     if (!selectedGroupId) {
-      setSelectionError('Seleccioná un grupo para guardar el layout.')
+      setSelectionError('Seleccioná un grupo para guardar el reporte.')
       return false
     }
     setSavingLayout(true)
     const payload = {
-      name: layoutName || 'Nuevo reporte',
-      description: layoutDescription || null,
+      name: layoutName.trim() || 'Nuevo reporte',
+      description: layoutDescription.trim() || null,
       default_group_id: selectedGroupId,
       default_output_format: outputFormat,
       csv_delimiter: csvDelimiter,
@@ -707,7 +932,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       : await createReportLayout(tenantId, payload)
     setSavingLayout(false)
     if (!response.ok) {
-      setSelectionError(response.error || 'No se pudo guardar el layout.')
+      setSelectionError(response.error || 'No se pudo guardar el reporte.')
       return false
     }
     await loadLayouts()
@@ -719,6 +944,9 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
 
   const closeWizard = useCallback(() => {
     setShowSaveLayoutDialog(false)
+    setFormatEditorColumnId(null)
+    setFormatAddMenuOpen(false)
+    setFormatFieldsMenuOpen(false)
     setWizardOpen(false)
   }, [])
 
@@ -731,6 +959,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
     setRunningReport(true)
     const response = await createReportRun(tenantId, {
       report_id: editingLayoutId,
+      report_name: layoutName.trim() || null,
       group_id: selectedGroupId,
       file_ids: selectedFileIds,
       output_format: outputFormat,
@@ -748,10 +977,10 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       return
     }
     closeWizard()
-  }, [closeWizard, columns, csvDelimiter, editingLayoutId, loadRuns, outputFormat, selectedFileIds, selectedGroupId, tenantId])
+  }, [closeWizard, columns, csvDelimiter, editingLayoutId, layoutName, loadRuns, outputFormat, selectedFileIds, selectedGroupId, tenantId])
 
   const deleteLayout = useCallback(async (layoutId: string) => {
-    if (!window.confirm('¿Eliminar este layout de reporte?')) {
+    if (!window.confirm('¿Eliminar este reporte?')) {
       return
     }
     const response = await deleteReportLayout(tenantId, layoutId)
@@ -807,7 +1036,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
       <div className="reports-bento">
         <section className="reports-layouts-panel">
           <div className="reports-section-head">
-            <h3>Layouts guardados</h3>
+            <h3>Reportes guardados</h3>
             {layouts.length > 2 && (
               <button
                 type="button"
@@ -820,8 +1049,8 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
             )}
           </div>
 
-          {loading && <p className="reports-inline-note">Cargando layouts...</p>}
-          {!loading && layouts.length === 0 && <p className="reports-inline-note">Todavía no hay layouts guardados.</p>}
+          {loading && <p className="reports-inline-note">Cargando reportes...</p>}
+          {!loading && layouts.length === 0 && <p className="reports-inline-note">Todavía no hay reportes guardados.</p>}
 
           <div className="reports-layout-grid">
             {displayedLayouts.map((layout, index) => {
@@ -846,12 +1075,12 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                   <div className="reports-layout-card-body">
                     <h4>{layout.name}</h4>
                     <p className="reports-layout-meta">Última actualización: {formatReportDate(layout.updated_at || layout.created_at)}</p>
-                    <p className="reports-layout-description">{layout.description || 'Layout reutilizable listo para ejecutarse con un nuevo lote de archivos.'}</p>
+                    <p className="reports-layout-description">{layout.description || 'Reporte reutilizable listo para generarse con un nuevo lote de archivos.'}</p>
                   </div>
 
                   <button type="button" className="reports-layout-run-button" onClick={() => void openWizard(layout)}>
                     <Play size={14} />
-                    <span>Ejecutar layout</span>
+                    <span>Generar reporte</span>
                   </button>
                 </article>
               )
@@ -1340,36 +1569,14 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                             }
                             placeholder="Nombre de columna"
                           />
-                          {singleDetectedTemplate ? (
-                            <select
-                              className="year-select"
-                              value={column.template_mappings?.[singleDetectedTemplate.template_id] || ''}
-                              onChange={(event) =>
-                                setColumns((prev) =>
-                                  prev.map((item) =>
-                                    item.column_id === column.column_id
-                                      ? {
-                                          ...item,
-                                          template_mappings: {
-                                            ...(item.template_mappings || {}),
-                                            [singleDetectedTemplate.template_id]: event.target.value,
-                                          },
-                                        }
-                                      : item,
-                                  ),
-                                )
-                              }
-                            >
-                              <option value="">Seleccionar campo...</option>
-                              {singleDetectedTemplate.fields.map((field) => (
-                                <option key={field.key} value={field.key}>{getTemplateFieldOptionLabel(field)}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <div className="reports-column-template-chip">
-                              Campo de plantilla
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            className="reports-format-button"
+                            onClick={() => openFormatEditor(String(column.column_id))}
+                            title={describeColumnFormat(column, presentTemplates)}
+                          >
+                            <span>{describeColumnFormat(column, presentTemplates)}</span>
+                          </button>
                           <button type="button" className="modal-secondary" onClick={() => moveColumn(String(column.column_id), -1)} disabled={index === 0}><ArrowUp size={14} /></button>
                           <button type="button" className="modal-secondary" onClick={() => moveColumn(String(column.column_id), 1)} disabled={index === columns.length - 1}><ArrowDown size={14} /></button>
                           <button type="button" className="modal-secondary" onClick={() => removeColumn(String(column.column_id))}><Trash2 size={14} /></button>
@@ -1384,40 +1591,6 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                               ))}
                             </div>
                           ) : null}
-
-                          {!singleDetectedTemplate && (
-                            <div className="reports-template-mapping-grid">
-                              {presentTemplates.map((template: ReportSelectionTemplate) => (
-                                <div key={`${column.column_id}-${template.template_id}`} className="settings-field">
-                                  <label>{template.name}</label>
-                                  <select
-                                    className="year-select"
-                                    value={column.template_mappings?.[template.template_id] || ''}
-                                    onChange={(event) =>
-                                      setColumns((prev) =>
-                                        prev.map((item) =>
-                                          item.column_id === column.column_id
-                                            ? {
-                                                ...item,
-                                                template_mappings: {
-                                                  ...(item.template_mappings || {}),
-                                                  [template.template_id]: event.target.value,
-                                                },
-                                              }
-                                            : item,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    <option value="">Seleccionar campo...</option>
-                                    {template.fields.map((field) => (
-                                      <option key={field.key} value={field.key}>{getTemplateFieldOptionLabel(field)}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </article>
                       ))}
                     </div>
@@ -1456,11 +1629,11 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                 <section className="reports-step-main-card">
                   <div className="reports-step-card-head">
                     <h4>Resumen final</h4>
-                    <p>Guardá este layout para reutilizarlo o procesá el reporte ahora.</p>
+                    <p>Guardá este reporte para reutilizarlo o generá el reporte ahora.</p>
                   </div>
 
                   <div className="settings-field">
-                    <label>Nombre del layout</label>
+                    <label>Nombre del reporte</label>
                     <input
                       className="settings-input"
                       value={layoutName}
@@ -1489,7 +1662,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                   <div className="reports-side-summary-list">
                     <p><FileText size={15} /> Formato: {outputFormat.toUpperCase()}</p>
                     {outputFormat === 'csv' && <p><Save size={15} /> Delimitador: {csvDelimiter}</p>}
-                    <p><CheckCircle2 size={15} /> Layout reutilizable: {layoutName?.trim() ? 'sí' : 'pendiente de nombre'}</p>
+                    <p><CheckCircle2 size={15} /> Nombre de descarga: {layoutName?.trim() ? layoutName.trim() : 'Reporte_timestamp'}</p>
                   </div>
                 </aside>
               </div>
@@ -1503,6 +1676,157 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
               )}
             </div>
             </div>
+
+            {activeFormatColumn && (
+              <div className="reports-format-editor-overlay" role="dialog" aria-modal="true" aria-label="Elegir formato de columna">
+                <div className="reports-format-editor-modal">
+                  <header className="reports-format-editor-head">
+                    <div>
+                      <h4>Elegir formato</h4>
+                      <p>{activeFormatColumn.label?.trim() || 'Columna sin nombre'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="reports-wizard-close"
+                      onClick={() => {
+                        setFormatEditorColumnId(null)
+                        setFormatAddMenuOpen(false)
+                        setFormatFieldsMenuOpen(false)
+                      }}
+                      aria-label="Cerrar formato"
+                    >
+                      <X size={18} />
+                    </button>
+                  </header>
+
+                  <div className="reports-format-editor-body">
+                    <div className="reports-format-builder">
+                      <div className="reports-format-lane">
+                        {activeFormatParts.length === 0 && (
+                          <p className="reports-format-empty">Agrega texto, espacios o campos detectados.</p>
+                        )}
+                        {activeFormatParts.map((part, partIndex) => {
+                          const partId = String(part.part_id || partIndex)
+                          return (
+                            <div key={partId} className={`reports-format-part ${part.part_type}`}>
+                              {part.part_type === 'text' && (
+                                <input
+                                  value={part.value || ''}
+                                  onChange={(event) => updateTextFormatPart(String(activeFormatColumn.column_id), partId, event.target.value)}
+                                  size={Math.min(Math.max(String(part.value || '').length || 5, 4), 28)}
+                                  aria-label="Texto fijo"
+                                />
+                              )}
+                              {part.part_type === 'space' && <span>Espacio</span>}
+                              {part.part_type === 'field' && (
+                                <span title={resolveFormatFieldLabel(part, presentTemplates)}>
+                                  <FileText size={14} /> {resolveFormatFieldDisplayName(part, presentTemplates)}
+                                </span>
+                              )}
+                              <div className="reports-format-part-actions">
+                                <button
+                                  type="button"
+                                  onClick={() => moveFormatPart(String(activeFormatColumn.column_id), partId, -1)}
+                                  disabled={partIndex === 0}
+                                  aria-label="Mover parte a la izquierda"
+                                >
+                                  <ArrowLeft size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveFormatPart(String(activeFormatColumn.column_id), partId, 1)}
+                                  disabled={partIndex === activeFormatParts.length - 1}
+                                  aria-label="Mover parte a la derecha"
+                                >
+                                  <ArrowRight size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeFormatPart(String(activeFormatColumn.column_id), partId)}
+                                  aria-label="Eliminar parte"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="reports-format-add">
+                        <button
+                          type="button"
+                          className="reports-format-add-button"
+                          onClick={() => {
+                            setFormatAddMenuOpen((prev) => !prev)
+                            setFormatFieldsMenuOpen(false)
+                          }}
+                          aria-haspopup="menu"
+                          aria-expanded={formatAddMenuOpen}
+                        >
+                          <Plus size={16} />
+                        </button>
+
+                        {formatAddMenuOpen && (
+                          <div className="reports-format-add-menu" role="menu">
+                            <button type="button" onClick={() => addFormatPart(createTextFormatPart())} role="menuitem">
+                              Texto
+                            </button>
+                            <button type="button" onClick={() => addFormatPart(createSpaceFormatPart())} role="menuitem">
+                              Espacio
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFormatFieldsMenuOpen((prev) => !prev)}
+                              role="menuitem"
+                              aria-expanded={formatFieldsMenuOpen}
+                              className="reports-format-fields-trigger"
+                            >
+                              <span>Campos detectados</span>
+                              <ChevronRight size={14} />
+                            </button>
+                            {formatFieldsMenuOpen && (
+                              <div className="reports-format-field-menu">
+                                {presentTemplates.length === 0 || !presentTemplates.some((template) => template.fields.length > 0) ? (
+                                  <p>No hay archivos seleccionados o los archivos seleccionados no tienen campos seleccionados</p>
+                                ) : null}
+                                {presentTemplates.filter((template) => template.fields.length > 0).map((template) => (
+                                  <div key={template.template_id} className="reports-format-field-group">
+                                    <strong>{template.name}</strong>
+                                    {template.fields.map((field) => (
+                                      <button
+                                        key={`${template.template_id}-${field.key}`}
+                                        type="button"
+                                        onClick={() => addFormatPart(createFieldFormatPart(template.template_id, field.key))}
+                                      >
+                                        {getTemplateFieldOptionLabel(field)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <footer className="reports-format-editor-footer">
+                    <button
+                      type="button"
+                      className="modal-primary reports-footer-primary"
+                      onClick={() => {
+                        setFormatEditorColumnId(null)
+                        setFormatAddMenuOpen(false)
+                        setFormatFieldsMenuOpen(false)
+                      }}
+                    >
+                      Guardar
+                    </button>
+                  </footer>
+                </div>
+              </div>
+            )}
 
             <footer className="reports-wizard-footer">
               <div className="reports-wizard-footer-actions">
@@ -1536,7 +1860,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                       onClick={() => void processReport()}
                       disabled={runningReport || !canPersistDraft}
                     >
-                      <Play size={14} /> {runningReport ? 'Procesando...' : 'Procesar ahora'}
+                      <Play size={14} /> {runningReport ? 'Generando...' : 'Generar reporte'}
                     </button>
                   </>
                 )}
@@ -1544,9 +1868,9 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
             </footer>
 
             {showSaveLayoutDialog && (
-              <div className="reports-confirm-overlay" role="dialog" aria-modal="true" aria-label="Guardar configuracion reporte">
+              <div className="reports-confirm-overlay" role="dialog" aria-modal="true" aria-label="Guardar reporte">
                 <div className="reports-confirm-card">
-                  <h4>Guardar configuracion reporte</h4>
+                  <h4>Guardar reporte</h4>
                   <p>Podes guardar la configuracion del reporte para repetir su ejecucion con nuevos datos.</p>
                   <div className="reports-confirm-actions">
                     <button
@@ -1568,7 +1892,7 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
                       }}
                       disabled={savingLayout || !canPersistDraft}
                     >
-                      <Save size={14} /> {savingLayout ? 'Guardando...' : 'Guardar'}
+                      <Save size={14} /> {savingLayout ? 'Guardando...' : 'Guardar reporte'}
                     </button>
                   </div>
                 </div>
