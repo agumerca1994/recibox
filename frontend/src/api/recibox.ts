@@ -68,6 +68,7 @@ export type ReportLayoutUpsertPayload = {
 
 export type ReportRunCreatePayload = {
   report_id?: string | null
+  report_name?: string | null
   group_id: string
   file_ids: string[]
   output_format: ReportOutputFormat

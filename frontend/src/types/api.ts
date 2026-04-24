@@ -413,9 +413,18 @@ export type TemplateClassificationRuleResponse = {
 }
 
 export type ReportOutputFormat = 'csv' | 'xlsx'
-export type ReportColumnSourceType = 'system' | 'template_field'
+export type ReportColumnSourceType = 'system' | 'template_field' | 'composite'
 export type ReportColumnValueType = 'string' | 'number' | 'date'
 export type ReportTemplateBindingStatus = 'ready' | 'legacy' | 'mismatch' | 'outside_group' | 'invalid'
+export type ReportColumnFormatPartType = 'text' | 'space' | 'field'
+
+export type ReportColumnFormatPart = {
+  part_id?: string
+  part_type: ReportColumnFormatPartType
+  value?: string
+  template_id?: string
+  field_key?: string
+}
 
 export type ReportColumn = {
   column_id?: string
@@ -424,6 +433,7 @@ export type ReportColumn = {
   source_type: ReportColumnSourceType
   system_key?: 'file_name' | 'relative_path' | 'template_name' | 'processed_at' | null
   template_mappings?: Record<string, string>
+  format_parts?: ReportColumnFormatPart[]
   order?: number
 }
 

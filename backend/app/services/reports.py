@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,11 +24,12 @@ from app.services.templates.store import get_document_template, list_document_te
 from app.services.templates.groups import get_template_group
 
 VALID_REPORT_OUTPUT_FORMATS = {"csv", "xlsx"}
-VALID_REPORT_COLUMN_SOURCE_TYPES = {"system", "template_field"}
+VALID_REPORT_COLUMN_SOURCE_TYPES = {"system", "template_field", "composite"}
 VALID_REPORT_COLUMN_VALUE_TYPES = {"string", "number", "date"}
 VALID_REPORT_RUN_STATES = {"running", "success", "error"}
 VALID_CSV_DELIMITERS = {";", ","}
 VALID_SYSTEM_COLUMN_KEYS = {"file_name", "relative_path", "template_name", "processed_at"}
+VALID_REPORT_FORMAT_PART_TYPES = {"text", "space", "field"}
 
 
 def _status_text(value: Any) -> str:
@@ -158,12 +160,65 @@ def _normalize_column_value_type(value: object) -> str:
 def _normalize_column_source_type(value: object) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in VALID_REPORT_COLUMN_SOURCE_TYPES:
-        raise ValueError("column.source_type must be 'system' or 'template_field'")
+        raise ValueError("column.source_type must be 'system', 'template_field' or 'composite'")
     return normalized
 
 
 def normalize_report_run_options(*, output_format: object, csv_delimiter: object | None) -> tuple[str, str]:
     return _normalize_output_format(output_format), _normalize_csv_delimiter(csv_delimiter)
+
+
+def _parse_report_format_parts(raw_parts: object, column_index: int) -> list[dict[str, Any]]:
+    if not isinstance(raw_parts, list) or not raw_parts:
+        raise ValueError(f"columns[{column_index}].format_parts must include at least one item")
+
+    normalized_parts: list[dict[str, Any]] = []
+    for part_index, raw_part in enumerate(raw_parts):
+        if not isinstance(raw_part, dict):
+            raise ValueError(f"columns[{column_index}].format_parts[{part_index}] must be an object")
+
+        part_type = str(raw_part.get("part_type") or "").strip().lower()
+        if part_type not in VALID_REPORT_FORMAT_PART_TYPES:
+            raise ValueError(
+                "columns[%d].format_parts[%d].part_type must be one of: %s"
+                % (column_index, part_index, ", ".join(sorted(VALID_REPORT_FORMAT_PART_TYPES)))
+            )
+
+        part_id = _normalize_text(
+            raw_part.get("part_id"),
+            f"columns[{column_index}].format_parts[{part_index}].part_id",
+        ) or str(uuid.uuid4())
+        normalized_part: dict[str, Any] = {
+            "part_id": part_id,
+            "part_type": part_type,
+        }
+
+        if part_type == "text":
+            value = str(raw_part.get("value", ""))
+            if not value.strip():
+                raise ValueError(f"columns[{column_index}].format_parts[{part_index}].value is required")
+            normalized_part["value"] = value
+        elif part_type == "space":
+            normalized_part["value"] = " "
+        else:
+            template_id = _normalize_text(
+                raw_part.get("template_id"),
+                f"columns[{column_index}].format_parts[{part_index}].template_id",
+                required=True,
+            )
+            field_key = _normalize_text(
+                raw_part.get("field_key"),
+                f"columns[{column_index}].format_parts[{part_index}].field_key",
+                required=True,
+            )
+            assert template_id is not None
+            assert field_key is not None
+            normalized_part["template_id"] = template_id
+            normalized_part["field_key"] = field_key
+
+        normalized_parts.append(normalized_part)
+
+    return normalized_parts
 
 
 def parse_report_columns_payload(
@@ -214,7 +269,8 @@ def parse_report_columns_payload(
                 )
             normalized_item["system_key"] = system_key
             normalized_item["template_mappings"] = {}
-        else:
+            normalized_item["format_parts"] = []
+        elif source_type == "template_field":
             raw_mappings = item.get("template_mappings")
             if not isinstance(raw_mappings, dict):
                 raise ValueError(f"columns[{index - 1}].template_mappings must be an object")
@@ -237,6 +293,11 @@ def parse_report_columns_payload(
                         % (index - 1, ", ".join(missing))
                     )
             normalized_item["template_mappings"] = mappings
+            normalized_item["system_key"] = None
+            normalized_item["format_parts"] = []
+        else:
+            normalized_item["format_parts"] = _parse_report_format_parts(item.get("format_parts"), index - 1)
+            normalized_item["template_mappings"] = {}
             normalized_item["system_key"] = None
 
         normalized_columns.append(normalized_item)
@@ -1152,11 +1213,93 @@ def _write_xlsx_artifact(
     workbook.save(str(artifact_path))
 
 
-def _build_run_artifact_paths(*, tenant_id: str, report_run_id: str, output_format: str) -> tuple[Path, str]:
+def _sanitize_report_filename_stem(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    sanitized = re.sub(r'[\\/:*?"<>|]+', " ", normalized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip(" .")
+    sanitized = re.sub(r"\.(csv|xlsx)$", "", sanitized, flags=re.IGNORECASE).strip(" .")
+    return sanitized[:120].strip()
+
+
+def _build_run_artifact_paths(
+    *,
+    tenant_id: str,
+    report_run_id: str,
+    output_format: str,
+    report_name: str | None = None,
+    generated_at: datetime | None = None,
+) -> tuple[Path, str]:
     artifact_base = _artifact_base_dir(tenant_id=tenant_id)
     extension = "csv" if output_format == "csv" else "xlsx"
-    filename = f"reporte-{report_run_id}.{extension}"
-    return artifact_base / filename, filename
+    stem = _sanitize_report_filename_stem(report_name)
+    if not stem:
+        timestamp = (generated_at or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
+        stem = f"Reporte_{timestamp}"
+    filename = f"{stem}.{extension}"
+    return artifact_base / report_run_id / filename, filename
+
+
+def _collect_requested_fields_by_template(
+    *,
+    columns: list[dict[str, Any]],
+    template_ids: set[str],
+) -> dict[str, set[str]]:
+    requested_fields_by_template: dict[str, set[str]] = {template_id: set() for template_id in template_ids}
+    for column in columns:
+        source_type = str(column.get("source_type") or "").strip()
+        if source_type == "template_field":
+            mappings = column.get("template_mappings") or {}
+            for template_id, field_key in mappings.items():
+                if template_id in requested_fields_by_template:
+                    requested_fields_by_template[template_id].add(str(field_key))
+            continue
+
+        if source_type != "composite":
+            continue
+
+        for part in column.get("format_parts") or []:
+            if not isinstance(part, dict) or part.get("part_type") != "field":
+                continue
+            template_id = str(part.get("template_id") or "").strip()
+            field_key = str(part.get("field_key") or "").strip()
+            if template_id in requested_fields_by_template and field_key:
+                requested_fields_by_template[template_id].add(field_key)
+    return requested_fields_by_template
+
+
+def _render_system_report_column(*, system_key: str, file_item: dict[str, Any]) -> str:
+    if system_key == "file_name":
+        return str(file_item.get("name", "")).strip()
+    if system_key == "relative_path":
+        return str(file_item.get("relative_path", "") or "")
+    if system_key == "template_name":
+        return str(file_item.get("template_name", "") or "")
+    if system_key == "processed_at":
+        return str(file_item.get("processed_at", "") or "")
+    return ""
+
+
+def _render_composite_report_column(
+    *,
+    column: dict[str, Any],
+    template_id: str,
+    value_map: dict[str, Any],
+) -> str:
+    rendered_parts: list[str] = []
+    for part in column.get("format_parts") or []:
+        if not isinstance(part, dict):
+            continue
+        part_type = str(part.get("part_type") or "").strip()
+        if part_type == "text":
+            rendered_parts.append(str(part.get("value", "")))
+        elif part_type == "space":
+            rendered_parts.append(" ")
+        elif part_type == "field" and str(part.get("template_id") or "").strip() == template_id:
+            field_key = str(part.get("field_key") or "").strip()
+            rendered_parts.append(str(value_map.get(field_key, "") or ""))
+    return "".join(rendered_parts)
 
 
 def run_report_flow(
@@ -1168,6 +1311,7 @@ def run_report_flow(
     output_format: str,
     csv_delimiter: str,
     columns: list[dict[str, Any]],
+    report_name: str | None = None,
 ) -> dict[str, Any]:
     normalized_output = _normalize_output_format(output_format)
     normalized_delimiter = _normalize_csv_delimiter(csv_delimiter)
@@ -1187,14 +1331,10 @@ def run_report_flow(
             template_id: get_document_template(tenant_id=tenant_id, template_id=template_id)
             for template_id in template_ids
         }
-        requested_fields_by_template: dict[str, set[str]] = {template_id: set() for template_id in template_ids}
-        for column in normalized_columns:
-            if column["source_type"] != "template_field":
-                continue
-            mappings = column.get("template_mappings") or {}
-            for template_id, field_key in mappings.items():
-                if template_id in requested_fields_by_template:
-                    requested_fields_by_template[template_id].add(str(field_key))
+        requested_fields_by_template = _collect_requested_fields_by_template(
+            columns=normalized_columns,
+            template_ids=template_ids,
+        )
 
         rows: list[dict[str, Any]] = []
         local_dir = Path(settings.local_download_dir)
@@ -1226,20 +1366,19 @@ def run_report_flow(
             for column in normalized_columns:
                 column_id = str(column["column_id"])
                 if column["source_type"] == "system":
-                    system_key = str(column.get("system_key") or "")
-                    if system_key == "file_name":
-                        row[column_id] = str(file_item.get("name", "")).strip()
-                    elif system_key == "relative_path":
-                        row[column_id] = str(file_item.get("relative_path", "") or "")
-                    elif system_key == "template_name":
-                        row[column_id] = str(file_item.get("template_name", "") or "")
-                    elif system_key == "processed_at":
-                        row[column_id] = str(file_item.get("processed_at", "") or "")
-                    else:
-                        row[column_id] = ""
-                else:
+                    row[column_id] = _render_system_report_column(
+                        system_key=str(column.get("system_key") or ""),
+                        file_item=file_item,
+                    )
+                elif column["source_type"] == "template_field":
                     field_key = str((column.get("template_mappings") or {}).get(template_id, "")).strip()
                     row[column_id] = str(value_map.get(field_key, "") or "")
+                else:
+                    row[column_id] = _render_composite_report_column(
+                        column=column,
+                        template_id=template_id,
+                        value_map=value_map,
+                    )
             rows.append(row)
             ok_count += 1
             _update_current_job_progress(
@@ -1255,6 +1394,7 @@ def run_report_flow(
             tenant_id=tenant_id,
             report_run_id=report_run_id,
             output_format=normalized_output,
+            report_name=report_name,
         )
         if normalized_output == "csv":
             _write_csv_artifact(
