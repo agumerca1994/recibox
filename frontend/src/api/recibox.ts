@@ -8,6 +8,7 @@ import type {
   JobQueuedResponse,
   JobStatusResponse,
   OAuthStatusResponse,
+  OAuthStartResponse,
   OAuthUnlinkResponse,
   ProcessRunListResponse,
   PickerFoldersResponse,
@@ -137,6 +138,13 @@ export function stopJob(jobId: string) {
 
 export function getGoogleOAuthStatus(tenantId: string) {
   return apiRequest<OAuthStatusResponse>(`/auth/google/status?${queryTenant(tenantId)}`)
+}
+
+export function startGoogleOAuth(tenantId: string, popup = true) {
+  return apiRequest<OAuthStartResponse>(`/auth/google/start?${queryTenant(tenantId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ popup }),
+  })
 }
 
 export function unlinkGoogleOAuth(tenantId: string) {

@@ -51,6 +51,7 @@ import {
   listPickerFolders,
   listTemplates,
   listTemplateGroups,
+  startGoogleOAuth,
   putTemplateClassificationRule,
   putTenantDriveConfig,
   stopJob,
@@ -58,6 +59,7 @@ import {
   uploadTemplateSourcePdf,
   updateTemplate,
 } from './api/recibox'
+import { downloadApiFile, fetchApiBlob } from './api/client'
 import { signOutFirebaseUser } from './auth/firebase'
 import { authEmailStorageKey, tenantStorageKey } from './auth/session'
 import { getEnvironmentChip, getRuntimeSetting } from './config/environment'
@@ -65,6 +67,7 @@ import type {
   DriveFile,
   DriveFolder,
   JobStatusResponse,
+  OAuthStatusResponse,
   ProcessRunRecord,
   ReciboxStructureCheckResponse,
   TemplateFieldType,
@@ -88,7 +91,6 @@ import type {
 } from './types/api'
 
 const defaultTenant = normalizeTenantId(import.meta.env.VITE_TENANT_ID || 'acme') || 'acme'
-const apiBasePath = import.meta.env.VITE_API_BASE_PATH || '/api'
 const pdfWorkerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 const templateLocalUploadEnabled = (getRuntimeSetting('VITE_TEMPLATE_LOCAL_UPLOAD_ENABLED') || 'false').toLowerCase() === 'true'
 const templateListCacheTtlMs = 30_000
@@ -118,6 +120,42 @@ type OAuthMessage = {
   ok?: boolean
   tenant_id?: string
   message?: string
+}
+
+function getOAuthStatusErrorMessage(status: OAuthStatusResponse | null | undefined): string {
+  if (!status) {
+    return ''
+  }
+  if (status.tenant_disabled) {
+    return 'La cuenta de Google Drive esta deshabilitada para este tenant. Volve a conectar la cuenta.'
+  }
+  if (status.reauth_required) {
+    return status.refresh_error || 'La autorizacion de Google Drive vencio o fue revocada. Volve a conectar la cuenta.'
+  }
+  if (status.scope_mismatch) {
+    return 'La cuenta conectada no tiene los permisos necesarios de Google Drive. Volve a conectarla.'
+  }
+  if (status.has_token && !status.valid) {
+    return status.refresh_error || 'No se pudo validar la conexion con Google Drive. Volve a conectar la cuenta.'
+  }
+  return ''
+}
+
+function getConnectButtonLabel(status: OAuthStatusResponse | null | undefined): string {
+  if (status?.reauth_required || status?.has_token) {
+    return 'Reconectar'
+  }
+  return 'Conectar'
+}
+
+function getConnectCardDescription(status: OAuthStatusResponse | null | undefined): string {
+  if (status?.reauth_required) {
+    return 'La autorizacion anterior de Google Drive ya no es valida. Volve a conectar la cuenta para continuar.'
+  }
+  if (status?.scope_mismatch) {
+    return 'La cuenta actual no tiene todos los permisos necesarios. Volve a autorizar Google Drive.'
+  }
+  return 'Conecta tu cuenta de Google Drive para habilitar documentos, procesamiento, reportes y configuracion.'
 }
 
 type FloatingMenuPosition = {
@@ -2096,20 +2134,7 @@ function resolveRuleStatusLabel(status: RuleStatus | undefined): string {
 }
 
 async function fetchPdfBlob(url: string): Promise<Blob> {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: {
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-    },
-  })
-  if (!response.ok) {
-    throw new Error(`No se pudo cargar el PDF (${response.status}).`)
-  }
-  const blob = await response.blob()
-  if (blob.size === 0) {
-    throw new Error('El PDF esta vacio.')
-  }
+  const { blob } = await fetchApiBlob(url)
   return blob
 }
 
@@ -2249,6 +2274,7 @@ function BackofficeApp() {
 
   const [showConnectRequiredModal, setShowConnectRequiredModal] = useState(false)
   const [showTutorialModal, setShowTutorialModal] = useState(false)
+  const [oauthStatus, setOauthStatus] = useState<OAuthStatusResponse | null>(null)
   const [oauthFeedback, setOauthFeedback] = useState<{ type: 'success' | 'error' | null; text: string }>({
     type: null,
     text: '',
@@ -2348,6 +2374,7 @@ function BackofficeApp() {
     async (showError = false, targetTenantId = tenantId): Promise<boolean> => {
       const response = await getGoogleOAuthStatus(targetTenantId)
       if (!response.ok) {
+        setOauthStatus(null)
         setIsConnected(false)
         if (showError) {
           setOauthFeedback({
@@ -2357,9 +2384,23 @@ function BackofficeApp() {
         }
         return false
       }
-      const data = response.data
+      const data = response.data || null
+      setOauthStatus(data)
       const connected = Boolean(data?.operable ?? (data?.has_token && data?.valid && !data?.tenant_disabled))
       setIsConnected(connected)
+      if (connected) {
+        setOauthFeedback((current) => (current.type === 'success' ? current : { type: null, text: '' }))
+        return true
+      }
+      const statusMessage = getOAuthStatusErrorMessage(data)
+      if (statusMessage) {
+        setOauthFeedback({ type: 'error', text: statusMessage })
+      } else if (showError) {
+        setOauthFeedback({
+          type: 'error',
+          text: response.error || 'No se pudo verificar el estado de OAuth.',
+        })
+      }
       return connected
     },
     [tenantId],
@@ -3727,12 +3768,12 @@ function BackofficeApp() {
         if (oauthTenantId) {
           setTenantId(oauthTenantId)
         }
-        refreshOAuthStatus(false, resolvedTenantId).then((connected) => {
+        refreshOAuthStatus(true, resolvedTenantId).then((connected) => {
           if (connected) {
+            setOauthFeedback({ type: 'success', text: 'Cuenta de Google Drive conectada correctamente.' })
             verifyStorageStructure(resolvedTenantId)
           }
         })
-        setOauthFeedback({ type: null, text: '' })
         return
       }
       setOauthFeedback({
@@ -3767,26 +3808,40 @@ function BackofficeApp() {
     }
   }, [showProfilePopover])
 
-  function connectGoogleDrive() {
+  async function connectGoogleDrive() {
     const nextTenantId = normalizeTenantId(tenantId || window.localStorage.getItem(tenantStorageKey) || defaultTenant) || defaultTenant
     setTenantId(nextTenantId)
-    const url = `${apiBasePath}/auth/google/login?tenant_id=${encodeURIComponent(nextTenantId)}&popup=true`
     const width = 560
     const height = 700
     const left = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2))
     const top = Math.max(0, window.screenY + Math.round((window.outerHeight - height) / 2))
+    const popupFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     const popup = window.open(
-      url,
+      '',
       'recibox-google-oauth',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+      popupFeatures,
     )
+
+    setOauthFeedback({ type: null, text: '' })
+
+    const response = await startGoogleOAuth(nextTenantId, true)
+    const url = response.data?.auth_url?.trim()
+    if (!response.ok || !url) {
+      popup?.close()
+      setOauthFeedback({
+        type: 'error',
+        text: response.error || 'No se pudo iniciar la conexion con Google Drive.',
+      })
+      return
+    }
 
     if (!popup) {
       window.location.href = url
       return
     }
 
-    setOauthFeedback({ type: null, text: '' })
+    popup.location.href = url
+    popup.focus()
   }
 
   async function logoutCurrentSession() {
@@ -3816,6 +3871,7 @@ function BackofficeApp() {
     }
 
     setIsConnected(false)
+    setOauthStatus(null)
     applySectionChange('cuenta', 'replace')
     setOauthFeedback({ type: null, text: '' })
     setStorageInfo(null)
@@ -4272,15 +4328,15 @@ function BackofficeApp() {
     window.open(`https://drive.google.com/file/d/${fileId}/view`, '_blank')
   }
 
-  function downloadDriveFile(fileId: string) {
-    const url = `${apiBasePath}/drive/files/${encodeURIComponent(fileId)}/download?tenant_id=${encodeURIComponent(tenantId)}`
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.target = '_blank'
-    anchor.rel = 'noopener noreferrer'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
+  async function downloadDriveFile(fileId: string) {
+    try {
+      await downloadApiFile(
+        buildDrivePdfDownloadUrl(tenantId, fileId),
+        `${fileId}.pdf`,
+      )
+    } catch (error) {
+      setNominaError(error instanceof Error ? error.message : 'No se pudo descargar el archivo.')
+    }
   }
 
   const loadProcessRuns = useCallback(async () => {
@@ -4848,6 +4904,7 @@ function BackofficeApp() {
               <section className="main-card" aria-label="Conectar Google Drive">
                 <h1>Para iniciar</h1>
                 <h2 className="connect-title">Conectá tu cuenta de Google Drive</h2>
+                <p>{getConnectCardDescription(oauthStatus)}</p>
 
                 <div className="logos-row">
                   <img className="recibox-large" src="/assets/branding/logo512.svg" alt="Recibox" />
@@ -4856,7 +4913,7 @@ function BackofficeApp() {
                 </div>
 
                 <button type="button" className="connect-btn" onClick={connectGoogleDrive}>
-                  Conectar
+                  {getConnectButtonLabel(oauthStatus)}
                 </button>
               </section>
             )}
@@ -5482,7 +5539,7 @@ function BackofficeApp() {
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Cuenta requerida">
           <div className="modal-card">
             <h3>Cuenta requerida</h3>
-            <p>Para procesar archivos primero necesitás conectar una cuenta de Google Drive.</p>
+            <p>Para continuar en esta sección necesitás conectar una cuenta de Google Drive.</p>
             <div className="modal-actions">
               <button type="button" className="modal-secondary" onClick={() => setShowConnectRequiredModal(false)}>
                 Cerrar

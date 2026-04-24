@@ -12,6 +12,7 @@ import { firebaseAuth, firebaseAuthEnabled } from './firebase'
 import { authEmailStorageKey, authUidStorageKey, tenantStorageKey } from './session'
 import { getEnvironmentChip } from '../config/environment'
 import { registerAccount } from '../api/recibox'
+import { fetchWithAuth } from '../api/client'
 
 type Props = {
   children: ReactNode
@@ -55,10 +56,10 @@ export default function AuthGate({ children }: Props) {
         }
         try {
           const idToken = await nextUser.getIdToken()
-          const response = await fetch(`${apiBasePath}/auth/session`, {
+          const response = await fetchWithAuth(`${apiBasePath}/auth/session`, {
+            method: 'GET',
             headers: {
               Authorization: `Bearer ${idToken}`,
-              'Cache-Control': 'no-cache',
             },
           })
           if (!response.ok) {

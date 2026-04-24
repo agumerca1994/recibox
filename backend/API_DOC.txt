@@ -7,6 +7,9 @@ Base URL
 Notas
   - Respuestas en JSON salvo descargas de archivo.
   - Errores devuelven HTTP 4xx/5xx con "detail".
+  - Todos los endpoints de negocio requieren `Authorization: Bearer <firebase_id_token>`
+    o `Authorization: Bearer <rbx_sk_live_...>`.
+  - `/health`, `/auth/google/callback` y `/auth/google/popup-bridge.js` quedan publicos.
   - En modo OAuth obligatorio (`OAUTH_REQUIRED_FOR_TENANT=true`), los endpoints de Drive
     requieren token OAuth valido por tenant.
 
@@ -20,10 +23,12 @@ GET /health
 
 OAuth (por tenant)
 ------------------
-GET /auth/google/login?tenant_id=acme
-  Redirige a Google para consentimiento.
+POST /auth/google/start?tenant_id=acme
+  Requiere Bearer Firebase. Genera URL de consentimiento con `state` firmado y de un solo uso.
+  Body:
+    {"popup":true}
 
-GET /auth/google/callback?code=...&state=acme
+GET /auth/google/callback?code=...&state=<signed_state>
   Guarda token OAuth del tenant en `GOOGLE_OAUTH_TOKEN_DIR`.
   Respuesta:
     {"status":"ok","tenant_id":"acme"}
@@ -40,6 +45,24 @@ POST /auth/google/unlink?tenant_id=acme
 
 POST /auth/google/unlink?tenant_id=acme&clear_drive_config=false&disable_tenant=false
   Variante del mismo endpoint: conserva config y no bloquea tenant.
+
+
+Service Tokens
+--------------
+GET /tenants/{tenant_id}/service-tokens
+  Lista tokens de servicio del tenant. Requiere usuario `owner/admin`.
+
+POST /tenants/{tenant_id}/service-tokens
+  Crea token de servicio. Requiere usuario `owner/admin`.
+  Body:
+    {
+      "name": "Integracion ERP",
+      "scopes": ["drive:read", "reports:write"],
+      "expires_in_days": 90
+    }
+
+POST /tenants/{tenant_id}/service-tokens/{token_id}/revoke
+  Revoca un token existente. Requiere usuario `owner/admin`.
 
 
 Tenant Drive Config (Redis JSON, MVP)
@@ -160,7 +183,7 @@ POST /jobs/{job_id}/stop
 Orden recomendado (OAuth + tenant)
 ----------------------------------
 1) GET /health
-2) GET /auth/google/login?tenant_id=acme
+2) POST /auth/google/start?tenant_id=acme
 3) GET /drive/picker/folders?tenant_id=acme&parent_id=root
 4) POST /tenants/acme/drive-config
 5) GET /drive/files?tenant_id=acme

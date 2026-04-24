@@ -153,6 +153,9 @@ export type OAuthStatusResponse = {
   scope_mismatch?: boolean
   tenant_disabled?: boolean
   operable?: boolean
+  reauth_required?: boolean
+  refresh_error?: string | null
+  status_reason?: string | null
 }
 
 export type OAuthUnlinkResponse = {
@@ -161,6 +164,12 @@ export type OAuthUnlinkResponse = {
   deleted_local_token: boolean
   drive_config_cleared?: boolean
   tenant_disabled?: boolean
+}
+
+export type OAuthStartResponse = {
+  status: string
+  tenant_id: string
+  auth_url: string
 }
 
 export type ReciboxStructureCheckResponse = {

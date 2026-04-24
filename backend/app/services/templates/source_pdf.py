@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import fitz
 
 from app.core.config import settings
 from app.services.storage import gdrive
@@ -26,8 +27,19 @@ def get_template_source_pdf_path(*, tenant_id: str, template_id: str) -> Path:
 
 def save_template_source_pdf(*, tenant_id: str, template_id: str, content: bytes) -> Path:
     payload = content or b""
+    max_bytes = max(int(settings.max_template_source_pdf_mb), 1) * 1024 * 1024
+    if len(payload) > max_bytes:
+        raise ValueError(f"file exceeds {settings.max_template_source_pdf_mb} MB limit")
     if len(payload) < len(PDF_SIGNATURE) or not payload.startswith(PDF_SIGNATURE):
         raise ValueError("file must be a valid PDF")
+    try:
+        with fitz.open(stream=payload, filetype="pdf") as document:
+            if document.page_count < 1:
+                raise ValueError("file must contain at least one page")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("file must be a readable PDF") from exc
 
     target = get_template_source_pdf_path(tenant_id=tenant_id, template_id=template_id)
     target.parent.mkdir(parents=True, exist_ok=True)

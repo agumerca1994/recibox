@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 import logging
+from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.logging import setup_logging
 from app.core.config import settings
+from app.services.auth.service_tokens import init_service_tokens_schema
 from app.services.templates.store import (
     delete_legacy_templates_by_name,
     init_document_templates_schema,
@@ -19,6 +21,19 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RECIBOX Backend", version="0.1.0")
+allowed_origins = [
+    origin.strip()
+    for origin in settings.cors_allowed_origins.split(",")
+    if origin.strip()
+]
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Cache-Control", "Pragma"],
+    )
 app.include_router(router)
 
 
@@ -27,6 +42,7 @@ def startup_events():
     if settings.postgres_url:
         init_user_tenants_schema()
         init_user_profiles_schema()
+        init_service_tokens_schema()
         init_template_groups_schema()
         init_document_templates_schema()
         init_classification_rules_schema()

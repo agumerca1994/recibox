@@ -11,6 +11,7 @@ class UserTenant:
     uid: str
     email: str | None
     tenant_id: str
+    role: str = "owner"
 
 
 def _new_tenant_id() -> str:
@@ -26,9 +27,16 @@ def init_user_tenants_schema() -> None:
                   uid TEXT PRIMARY KEY,
                   email TEXT NULL,
                   tenant_id TEXT NOT NULL UNIQUE,
+                  role TEXT NOT NULL DEFAULT 'owner',
                   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE auth_user_tenants
+                ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'owner'
                 """
             )
         conn.commit()
@@ -42,29 +50,44 @@ def resolve_or_create_user_tenant(uid: str, email: str | None) -> UserTenant:
 
     with get_postgres_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT uid, email, tenant_id FROM auth_user_tenants WHERE uid = %s", (normalized_uid,))
+            cur.execute("SELECT uid, email, tenant_id, role FROM auth_user_tenants WHERE uid = %s", (normalized_uid,))
             row = cur.fetchone()
             if row:
-                current_uid, current_email, current_tenant_id = row
+                current_uid, current_email, current_tenant_id, current_role = row
                 if normalized_email and current_email != normalized_email:
                     cur.execute(
                         "UPDATE auth_user_tenants SET email = %s, updated_at = NOW() WHERE uid = %s",
                         (normalized_email, normalized_uid),
                     )
                     conn.commit()
-                    return UserTenant(uid=current_uid, email=normalized_email, tenant_id=current_tenant_id)
-                return UserTenant(uid=current_uid, email=current_email, tenant_id=current_tenant_id)
+                    return UserTenant(
+                        uid=current_uid,
+                        email=normalized_email,
+                        tenant_id=current_tenant_id,
+                        role=str(current_role or "owner"),
+                    )
+                return UserTenant(
+                    uid=current_uid,
+                    email=current_email,
+                    tenant_id=current_tenant_id,
+                    role=str(current_role or "owner"),
+                )
 
             tenant_id = _new_tenant_id()
             cur.execute(
                 """
-                INSERT INTO auth_user_tenants (uid, email, tenant_id)
-                VALUES (%s, %s, %s)
-                RETURNING uid, email, tenant_id
+                INSERT INTO auth_user_tenants (uid, email, tenant_id, role)
+                VALUES (%s, %s, %s, %s)
+                RETURNING uid, email, tenant_id, role
                 """,
-                (normalized_uid, normalized_email, tenant_id),
+                (normalized_uid, normalized_email, tenant_id, "owner"),
             )
-            created_uid, created_email, created_tenant_id = cur.fetchone()
+            created_uid, created_email, created_tenant_id, created_role = cur.fetchone()
         conn.commit()
-    return UserTenant(uid=created_uid, email=created_email, tenant_id=created_tenant_id)
+    return UserTenant(
+        uid=created_uid,
+        email=created_email,
+        tenant_id=created_tenant_id,
+        role=str(created_role or "owner"),
+    )
 

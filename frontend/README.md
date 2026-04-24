@@ -96,4 +96,5 @@ Importante:
 Nota:
 
 - Esta integracion autentica usuarios en el frontend.
-- Si luego quieres proteger endpoints backend con Firebase ID tokens, se puede agregar en API como siguiente paso.
+- El cliente API adjunta el Firebase ID token en `Authorization` para todos los endpoints protegidos del backend.
+- En test y prod conviene compilar con `VITE_FIREBASE_AUTH_ENABLED=true`.

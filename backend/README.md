@@ -41,6 +41,20 @@ Módulos previstos:
 
 Modo recomendado: OAuth por tenant (sin service account).
 
+## Auth de API
+
+El backend ahora exige `Authorization: Bearer <token>` en todos los endpoints de negocio.
+
+- Usuarios humanos: Firebase ID token verificado con Admin SDK.
+- Integraciones backend/backend: service tokens propios de RECIBOX.
+- Excepciones publicas: `/health`, `/auth/google/callback` y `/auth/google/popup-bridge.js`.
+
+Variables nuevas importantes:
+- `API_AUTH_REQUIRED`
+- `APP_SECRET_KEY`
+- `CORS_ALLOWED_ORIGINS`
+- `MAX_TEMPLATE_SOURCE_PDF_MB`
+
 Configurar `.env` con:
 - (Opcional fallback legado) `GOOGLE_APPLICATION_CREDENTIALS`
 - (Opcional fallback) `DRIVE_INPUT_FOLDER_ID`
@@ -56,13 +70,17 @@ Modo recomendado para usuarios finales. Cada tenant autoriza su propio acceso.
    - `GOOGLE_OAUTH_CLIENT_SECRETS`
    - `GOOGLE_OAUTH_REDIRECT_URI`
    - `GOOGLE_OAUTH_TOKEN_DIR`
-3) Iniciar el flujo:
+3) Iniciar el flujo autenticado:
 ```
-GET /auth/google/login?tenant_id=acme
+POST /auth/google/start?tenant_id=acme
+Authorization: Bearer <firebase_id_token>
+{
+  "popup": true
+}
 ```
-4) Google redirige al callback y guarda el token del tenant:
+4) Google redirige al callback y guarda el token del tenant usando un `state` firmado y de un solo uso:
 ```
-GET /auth/google/callback?code=...&state=acme
+GET /auth/google/callback?code=...&state=<signed_state>
 ```
 
 Si `OAUTH_REQUIRED_FOR_TENANT=true`, el backend bloqueara el uso de service account
@@ -121,7 +139,19 @@ En ambos casos, la app dentro del contenedor debe leer rutas internas como:
 
 Para prod con OAuth por tenant:
 - `OAUTH_REQUIRED_FOR_TENANT=true`
+- `API_AUTH_REQUIRED=true`
+- `APP_SECRET_KEY=<secret fuerte>`
 - `GOOGLE_OAUTH_REDIRECT_URI=https://api.recibox.com.ar/auth/google/callback`
+
+## Service tokens
+
+Para integraciones maquina-a-maquina:
+
+- `GET /tenants/{tenant_id}/service-tokens`
+- `POST /tenants/{tenant_id}/service-tokens`
+- `POST /tenants/{tenant_id}/service-tokens/{token_id}/revoke`
+
+Solo usuarios `owner/admin` del tenant pueden administrarlos. El secreto se muestra una sola vez y en base solo queda el hash SHA-256.
 
 ## Prueba rápida de conexión
 

@@ -44,6 +44,7 @@ import {
   resolveReportSelection,
   updateReportLayout,
 } from '../api/recibox'
+import { downloadApiFile } from '../api/client'
 import type {
   DriveFile,
   DriveFolder,
@@ -260,6 +261,21 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
   const [searchQuery, setSearchQuery] = useState('')
   const [showAllLayouts, setShowAllLayouts] = useState(false)
   const [showAllRuns, setShowAllRuns] = useState(false)
+
+  const downloadRunArtifact = useCallback(
+    async (run: ReportRunRecord) => {
+      try {
+        await downloadApiFile(
+          buildReportRunDownloadUrl(tenantId, run.report_run_id),
+          run.artifact_filename || `reporte-${run.report_run_id}`,
+        )
+        setError('')
+      } catch (downloadError) {
+        setError(downloadError instanceof Error ? downloadError.message : 'No se pudo descargar el reporte.')
+      }
+    },
+    [tenantId],
+  )
   const folderCacheRef = useRef<Partial<Record<string, FolderCacheEntry>>>({})
   const folderRequestRef = useRef<Partial<Record<string, Promise<FolderCacheEntry>>>>({})
   const hasLoadedRunsRef = useRef(false)
@@ -897,13 +913,14 @@ export function ReportsScreen({ tenantId, isConnected, onRequireConnect }: Props
 
                     <div className="reports-run-actions-modern">
                       {run.artifact_available && (
-                        <a
+                        <button
+                          type="button"
                           className="reports-round-icon-button"
-                          href={buildReportRunDownloadUrl(tenantId, run.report_run_id)}
+                          onClick={() => void downloadRunArtifact(run)}
                           aria-label={`Descargar ${run.artifact_filename || run.report_run_id}`}
                         >
                           <Download size={15} />
-                        </a>
+                        </button>
                       )}
                       <button
                         type="button"

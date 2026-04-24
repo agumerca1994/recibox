@@ -80,14 +80,48 @@ def save_credentials(tenant_id: str, creds: Credentials) -> None:
     path.write_text(creds.to_json(), encoding="utf-8")
 
 
+def _refresh_error_message(exc: Exception) -> str:
+    raw = str(exc or "").strip()
+    if raw:
+        return raw
+    return exc.__class__.__name__
+
+
+def _is_reauth_required_error(exc: Exception) -> bool:
+    message = _refresh_error_message(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "invalid_grant",
+            "expired or revoked",
+            "token has been expired or revoked",
+            "invalid_rapt",
+            "reauth",
+        )
+    )
+
+
+def _describe_reauth_required() -> str:
+    return "La autorizacion de Google Drive vencio o fue revocada. Volve a conectar la cuenta."
+
+
 def ensure_fresh_credentials(tenant_id: str) -> Credentials:
     creds = load_credentials(tenant_id)
     if not creds:
         raise RuntimeError(f"No OAuth token configured for tenant '{tenant_id}'")
 
     if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        save_credentials(tenant_id, creds)
+        try:
+            creds.refresh(Request())
+            save_credentials(tenant_id, creds)
+        except Exception as exc:
+            if _is_reauth_required_error(exc):
+                raise RuntimeError(_describe_reauth_required()) from exc
+            raise RuntimeError(_refresh_error_message(exc)) from exc
+    elif creds.expired and not creds.refresh_token:
+        raise RuntimeError(_describe_reauth_required())
+    if not creds.valid:
+        raise RuntimeError(_describe_reauth_required())
     if not _has_required_scopes(tenant_id, creds):
         raise RuntimeError(
             f"Tenant '{tenant_id}' token is missing required OAuth scopes. Re-link Google OAuth to continue."
@@ -153,27 +187,47 @@ def get_token_status(tenant_id: str) -> dict:
             "expired": None,
             "has_refresh_token": False,
             "expiry": None,
+            "reauth_required": False,
+            "refresh_error": None,
+            "status_reason": "not_connected",
         }
 
+    refresh_error = None
+    reauth_required = False
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
             save_credentials(tenant_id, creds)
-        except Exception:
-            pass
+        except Exception as exc:
+            refresh_error = _refresh_error_message(exc)
+            reauth_required = _is_reauth_required_error(exc)
+    elif creds.expired and not creds.refresh_token:
+        reauth_required = True
+        refresh_error = "La cuenta de Google no tiene refresh token. Volve a conectar la cuenta."
 
     missing_scopes = _missing_scopes(tenant_id, creds)
 
     return {
         "tenant_id": tenant_id,
         "has_token": True,
-        "valid": bool(creds.valid and not missing_scopes),
+        "valid": bool(creds.valid and not missing_scopes and not reauth_required),
         "expired": bool(creds.expired),
         "has_refresh_token": bool(creds.refresh_token),
         "expiry": creds.expiry.isoformat() if creds.expiry else None,
         "granted_scopes": _granted_scopes(tenant_id, creds),
         "missing_scopes": missing_scopes,
         "scope_mismatch": bool(missing_scopes),
+        "reauth_required": reauth_required,
+        "refresh_error": _describe_reauth_required() if reauth_required else refresh_error,
+        "status_reason": (
+            "reauth_required"
+            if reauth_required
+            else "scope_mismatch"
+            if missing_scopes
+            else "ok"
+            if creds.valid
+            else "invalid_token"
+        ),
     }
 
 
@@ -212,7 +266,12 @@ def refresh_tenant_credentials(tenant_id: str) -> dict:
     if not creds.refresh_token:
         raise RuntimeError(f"Tenant '{tenant_id}' token has no refresh_token")
 
-    creds.refresh(Request())
+    try:
+        creds.refresh(Request())
+    except Exception as exc:
+        if _is_reauth_required_error(exc):
+            raise RuntimeError(_describe_reauth_required()) from exc
+        raise RuntimeError(_refresh_error_message(exc)) from exc
     save_credentials(tenant_id, creds)
     return {
         "tenant_id": tenant_id,

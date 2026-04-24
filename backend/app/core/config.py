@@ -4,6 +4,19 @@ class Settings(BaseSettings):
     app_name: str = "recibox-backend"
     env: str = "dev"
     log_level: str = "INFO"
+    app_secret_key: str = "dev-insecure-secret"
+    api_auth_required: bool = False
+    cors_allowed_origins: str = ""
+    max_template_source_pdf_mb: int = 20
+    oauth_state_ttl_seconds: int = 600
+    rate_limit_window_seconds: int = 60
+    rate_limit_public_requests: int = 120
+    rate_limit_authenticated_requests: int = 600
+    rate_limit_oauth_start_requests: int = 20
+    rate_limit_upload_requests: int = 12
+    rate_limit_job_run_requests: int = 30
+    rate_limit_job_stop_requests: int = 30
+    rate_limit_service_token_requests: int = 10
 
     # Optional legacy fallback; OAuth per tenant is the primary auth mode.
     google_application_credentials: str | None = None
@@ -37,6 +50,7 @@ class Settings(BaseSettings):
     postgres_url: str | None = None
     firebase_project_id: str | None = None
     firebase_credentials_path: str | None = None
+    service_token_prefix: str = "rbx_sk_live_"
 
     class Config:
         env_file = ".env"

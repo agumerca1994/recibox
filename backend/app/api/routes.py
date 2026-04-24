@@ -1,8 +1,8 @@
-from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pathlib import Path
 import json
-from urllib.parse import quote
+from urllib.parse import quote, unquote_plus
 import uuid
 from pydantic import BaseModel
 from rq.command import send_stop_job_command
@@ -77,8 +77,20 @@ from app.services.storage.gdrive_ops import (
     list_employee_folders,
     list_year_folders,
 )
-from app.services.auth import google_oauth
-from app.services.auth import firebase_auth
+from app.services.auth import google_oauth, oauth_state
+from app.services.auth.principal import (
+    Principal,
+    ensure_principal_has_roles,
+    ensure_principal_matches_tenant,
+    require_principal,
+    require_user_principal,
+)
+from app.services.auth.rate_limit import enforce_rate_limit, get_request_ip
+from app.services.auth.service_tokens import (
+    create_service_token,
+    list_service_tokens,
+    revoke_service_token,
+)
 from app.services.tenants.drive_config import (
     clear_tenant_drive_config,
     is_tenant_disabled,
@@ -87,7 +99,6 @@ from app.services.tenants.drive_config import (
     save_tenant_drive_config,
     set_tenant_disabled,
 )
-from app.services.tenants.user_tenants import resolve_or_create_user_tenant
 from app.services.tenants.user_profiles import upsert_user_profile
 from app.services.tenants.processing_preferences import (
     clear_tenant_processing_preferences,
@@ -202,6 +213,16 @@ class RegisterUserPayload(BaseModel):
     email: str | None = None
 
 
+class OAuthStartPayload(BaseModel):
+    popup: bool = False
+
+
+class ServiceTokenCreatePayload(BaseModel):
+    name: str
+    scopes: list[str]
+    expires_in_days: int = 90
+
+
 class ReportColumnPayload(BaseModel):
     column_id: str | None = None
     label: str
@@ -265,35 +286,7 @@ def _resolve_drive_config_or_400(tenant_id: str):
 
 def _ensure_postgres_enabled() -> None:
     if not settings.postgres_url:
-        raise HTTPException(status_code=503, detail="Postgres is required for reports")
-
-
-def _extract_bearer_token(authorization: str | None) -> str:
-    raw = (authorization or "").strip()
-    if not raw:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    parts = raw.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    return parts[1].strip()
-
-
-def _resolve_user_tenant_from_token(authorization: str | None) -> tuple[str, str | None, str]:
-    token = _extract_bearer_token(authorization)
-    try:
-        claims = firebase_auth.verify_bearer_token(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Firebase token")
-
-    uid = str(claims.get("uid", "")).strip()
-    email = str(claims.get("email", "")).strip() or None
-    if not uid:
-        raise HTTPException(status_code=401, detail="Token without uid")
-    try:
-        user_tenant = resolve_or_create_user_tenant(uid=uid, email=email)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Tenant mapping failed: {exc}")
-    return user_tenant.uid, user_tenant.email, user_tenant.tenant_id
+        raise HTTPException(status_code=503, detail="Postgres is required for this operation")
 
 
 def _resolve_template_rule_metadata(template, rule) -> tuple[str, bool, list[str]]:
@@ -397,20 +390,55 @@ def _serialize_report_columns_payload(columns: list[ReportColumnPayload]) -> lis
     return [item.model_dump() for item in columns]
 
 
+def _popup_origin_from_request(request: Request) -> str | None:
+    origin = str(request.headers.get("origin") or "").strip()
+    if origin:
+        return origin
+    referer = str(request.headers.get("referer") or "").strip()
+    if not referer:
+        return None
+    try:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(referer)
+    except Exception:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 @router.get("/health")
 async def health():
     return {"status": "ok"}
 
 
 @router.get("/auth/session")
-async def auth_session(authorization: str | None = Header(default=None)):
-    uid, email, tenant_id = _resolve_user_tenant_from_token(authorization)
-    return {"uid": uid, "email": email, "tenant_id": tenant_id}
+async def auth_session(
+    _request: Request,
+    principal: Principal | None = Depends(require_user_principal(require_tenant_match=False)),
+):
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Missing authenticated user")
+    return {
+        "uid": principal.uid,
+        "email": principal.email,
+        "tenant_id": principal.tenant_id,
+        "roles": list(principal.roles),
+    }
 
 
 @router.post("/auth/register")
-async def register_user(payload: RegisterUserPayload, authorization: str | None = Header(default=None)):
-    uid, token_email, tenant_id = _resolve_user_tenant_from_token(authorization)
+async def register_user(
+    payload: RegisterUserPayload,
+    _request: Request,
+    principal: Principal | None = Depends(require_user_principal(require_tenant_match=False)),
+):
+    if principal is None or not principal.uid:
+        raise HTTPException(status_code=401, detail="Missing authenticated user")
+    uid = principal.uid
+    token_email = principal.email
+    tenant_id = principal.tenant_id
     profile_email = (payload.email or token_email or "").strip() or None
     try:
         profile = upsert_user_profile(
@@ -431,6 +459,7 @@ async def register_user(payload: RegisterUserPayload, authorization: str | None 
         "uid": profile.uid,
         "tenant_id": profile.tenant_id,
         "email": profile.email,
+        "roles": list(principal.roles),
         "company_name": profile.company_name,
         "tax_id": profile.tax_id,
         "billing_address": profile.billing_address,
@@ -440,6 +469,7 @@ async def register_user(payload: RegisterUserPayload, authorization: str | None 
 async def list_drive_files(
     limit: int | None = Query(None, ge=1, le=1000),
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     cfg = _resolve_drive_config_or_400(tenant_id)
@@ -464,6 +494,7 @@ async def list_drive_files(
 async def list_employee_folders_endpoint(
     limit: int | None = Query(None, ge=1, le=1000),
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     cfg = _resolve_drive_config_or_400(tenant_id)
@@ -482,6 +513,7 @@ async def list_employee_folders_endpoint(
 async def create_employee_folder(
     payload: CreateEmployeePayload,
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
 ):
     _ensure_tenant_active(tenant_id)
     employee_name = payload.employee_name.strip()
@@ -500,6 +532,7 @@ async def list_employee_years(
     employee_folder_id: str,
     limit: int | None = Query(None, ge=1, le=1000),
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     try:
@@ -518,6 +551,7 @@ async def create_employee_year_folder(
     employee_folder_id: str,
     payload: CreateEmployeeYearPayload,
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
 ):
     _ensure_tenant_active(tenant_id)
     year = payload.year.strip()
@@ -535,6 +569,7 @@ async def list_employee_files(
     employee_folder_id: str,
     limit: int | None = Query(None, ge=1, le=1000),
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     try:
@@ -553,6 +588,7 @@ async def list_files_in_folder_endpoint(
     folder_id: str,
     limit: int | None = Query(None, ge=1, le=1000),
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     compact_fields = "nextPageToken, files(id, name, mimeType)"
@@ -578,6 +614,7 @@ async def list_files_in_folder_endpoint(
 async def list_folder_contents_endpoint(
     folder_id: str,
     tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     folder_mime = "application/vnd.google-apps.folder"
@@ -609,6 +646,7 @@ async def list_picker_folders(
     tenant_id: str = Query("default"),
     parent_id: str = Query("root"),
     limit: int | None = Query(None, ge=1, le=1000),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     query = "mimeType = 'application/vnd.google-apps.folder'"
@@ -636,7 +674,11 @@ async def list_picker_folders(
 
 
 @router.post("/drive/picker/folders")
-async def create_picker_folder(payload: CreateDriveFolderPayload, tenant_id: str = Query("default")):
+async def create_picker_folder(
+    payload: CreateDriveFolderPayload,
+    tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
+):
     _ensure_tenant_active(tenant_id)
     name = payload.name.strip()
     if not payload.parent_id.strip():
@@ -655,6 +697,7 @@ async def create_recibox_structure(
     payload: CreateReciboxStructurePayload,
     tenant_id: str = Query("default"),
     save_as_tenant_config: bool = Query(True),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
 ):
     _ensure_tenant_active(tenant_id)
     parent_id = payload.parent_id.strip()
@@ -700,6 +743,7 @@ async def create_recibox_structure(
 async def check_recibox_structure(
     tenant_id: str = Query("default"),
     parent_id: str = Query("root"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
 ):
     _ensure_tenant_active(tenant_id)
     parent = parent_id.strip()
@@ -751,6 +795,7 @@ async def create_recibox_input(
     payload: CreateReciboxInputPayload,
     tenant_id: str = Query("default"),
     save_as_tenant_config: bool = Query(True),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
 ):
     _ensure_tenant_active(tenant_id)
     recibox_folder_id = payload.recibox_folder_id.strip()
@@ -801,6 +846,7 @@ async def adopt_recibox_folder(
     payload: AdoptReciboxFolderPayload,
     tenant_id: str = Query("default"),
     save_as_tenant_config: bool = Query(True),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
 ):
     _ensure_tenant_active(tenant_id)
     folder_id = payload.folder_id.strip()
@@ -870,8 +916,22 @@ async def adopt_recibox_folder(
 
 
 @router.get("/drive/files/{file_id}/download")
-async def download_drive_file(file_id: str, tenant_id: str = Query("default")):
+async def download_drive_file(
+    file_id: str,
+    tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
+):
     _ensure_tenant_active(tenant_id)
+    cfg = _resolve_drive_config_or_400(tenant_id)
+    if not gdrive.file_has_any_ancestor(
+        file_id,
+        ancestor_ids=[
+            cfg.drive_input_folder_id,
+            cfg.drive_recibox_folder_id,
+        ],
+        tenant_id=tenant_id,
+    ):
+        raise HTTPException(status_code=403, detail="File is outside allowed tenant folders")
     local_dir = Path(settings.local_download_dir)
     local_dir.mkdir(parents=True, exist_ok=True)
     local_path = local_dir / f"{file_id}.pdf"
@@ -890,8 +950,18 @@ async def download_drive_file(file_id: str, tenant_id: str = Query("default")):
     )
 
 @router.post("/ingest/drive")
-async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str = Query("default")):
+async def ingest_drive(
+    payload: IngestDrivePayload | None = None,
+    tenant_id: str = Query("default"),
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"})),
+):
     _ensure_tenant_active(tenant_id)
+    enforce_rate_limit(
+        bucket="jobs_run",
+        subject=str(tenant_id),
+        limit=settings.rate_limit_job_run_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
     redis_conn = get_redis()
     cfg = _resolve_drive_config_or_400(tenant_id)
     lock_key = f"recibox:lock:{tenant_id}"
@@ -997,16 +1067,25 @@ async def ingest_drive(payload: IngestDrivePayload | None = None, tenant_id: str
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(
+    job_id: str,
+    principal: Principal | None = Depends(require_principal(scopes={"jobs:run"}, require_tenant_match=False)),
+):
     try:
         job = Job.fetch(job_id, connection=get_redis())
     except Exception:
         raise HTTPException(status_code=404, detail="Job not found")
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, job.meta.get("tenant_id"))
     return serialize_job_status(job)
 
 
 @router.get("/process-runs")
-async def get_process_runs(tenant_id: str = Query("default"), limit: int = Query(10, ge=1, le=10)):
+async def get_process_runs(
+    tenant_id: str = Query("default"),
+    limit: int = Query(10, ge=1, le=10),
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"})),
+):
     if not settings.postgres_url:
         return {"count": 0, "items": []}
     items = [serialize_process_run(record) for record in list_recent_process_runs(tenant_id, limit=limit)]
@@ -1014,7 +1093,11 @@ async def get_process_runs(tenant_id: str = Query("default"), limit: int = Query
 
 
 @router.post("/tenants/{tenant_id}/reports/selection/resolve")
-async def resolve_report_selection_endpoint(tenant_id: str, payload: ReportSelectionResolvePayload):
+async def resolve_report_selection_endpoint(
+    tenant_id: str,
+    payload: ReportSelectionResolvePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     _ensure_tenant_active(tenant_id)
     try:
@@ -1035,6 +1118,7 @@ async def bind_report_file_template_endpoint(
     tenant_id: str,
     file_id: str,
     payload: ReportFileTemplateBindingPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
 ):
     _ensure_postgres_enabled()
     _ensure_tenant_active(tenant_id)
@@ -1053,7 +1137,11 @@ async def bind_report_file_template_endpoint(
 
 
 @router.get("/tenants/{tenant_id}/reports")
-async def get_report_layouts_endpoint(tenant_id: str, include_inactive: bool = Query(True)):
+async def get_report_layouts_endpoint(
+    tenant_id: str,
+    include_inactive: bool = Query(True),
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     try:
         layouts = list_report_layouts(tenant_id=tenant_id, include_inactive=include_inactive)
@@ -1067,7 +1155,11 @@ async def get_report_layouts_endpoint(tenant_id: str, include_inactive: bool = Q
 
 
 @router.post("/tenants/{tenant_id}/reports")
-async def post_report_layout(tenant_id: str, payload: ReportLayoutPayload):
+async def post_report_layout(
+    tenant_id: str,
+    payload: ReportLayoutPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
+):
     _ensure_postgres_enabled()
     if not get_template_group(tenant_id=tenant_id, group_id=payload.default_group_id):
         raise HTTPException(status_code=400, detail="Template group not found")
@@ -1090,7 +1182,11 @@ async def post_report_layout(tenant_id: str, payload: ReportLayoutPayload):
 
 
 @router.get("/tenants/{tenant_id}/reports/{report_id}")
-async def get_report_layout_endpoint(tenant_id: str, report_id: str):
+async def get_report_layout_endpoint(
+    tenant_id: str,
+    report_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     try:
         layout = get_report_layout(tenant_id=tenant_id, report_id=report_id)
@@ -1102,7 +1198,12 @@ async def get_report_layout_endpoint(tenant_id: str, report_id: str):
 
 
 @router.put("/tenants/{tenant_id}/reports/{report_id}")
-async def put_report_layout_endpoint(tenant_id: str, report_id: str, payload: ReportLayoutPayload):
+async def put_report_layout_endpoint(
+    tenant_id: str,
+    report_id: str,
+    payload: ReportLayoutPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
+):
     _ensure_postgres_enabled()
     if not get_template_group(tenant_id=tenant_id, group_id=payload.default_group_id):
         raise HTTPException(status_code=400, detail="Template group not found")
@@ -1128,7 +1229,11 @@ async def put_report_layout_endpoint(tenant_id: str, report_id: str, payload: Re
 
 
 @router.delete("/tenants/{tenant_id}/reports/{report_id}")
-async def delete_report_layout_endpoint(tenant_id: str, report_id: str):
+async def delete_report_layout_endpoint(
+    tenant_id: str,
+    report_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
+):
     _ensure_postgres_enabled()
     try:
         deleted = delete_report_layout(tenant_id=tenant_id, report_id=report_id)
@@ -1140,7 +1245,11 @@ async def delete_report_layout_endpoint(tenant_id: str, report_id: str):
 
 
 @router.get("/tenants/{tenant_id}/report-runs")
-async def get_report_runs_endpoint(tenant_id: str, limit: int = Query(20, ge=1, le=50)):
+async def get_report_runs_endpoint(
+    tenant_id: str,
+    limit: int = Query(20, ge=1, le=50),
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     try:
         runs = list_recent_report_runs(tenant_id=tenant_id, limit=limit)
@@ -1154,7 +1263,11 @@ async def get_report_runs_endpoint(tenant_id: str, limit: int = Query(20, ge=1, 
 
 
 @router.post("/tenants/{tenant_id}/report-runs")
-async def post_report_run_endpoint(tenant_id: str, payload: ReportRunCreatePayload):
+async def post_report_run_endpoint(
+    tenant_id: str,
+    payload: ReportRunCreatePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
+):
     _ensure_postgres_enabled()
     _ensure_tenant_active(tenant_id)
 
@@ -1245,7 +1358,11 @@ async def post_report_run_endpoint(tenant_id: str, payload: ReportRunCreatePaylo
 
 
 @router.get("/tenants/{tenant_id}/report-runs/{report_run_id}")
-async def get_report_run_endpoint(tenant_id: str, report_run_id: str):
+async def get_report_run_endpoint(
+    tenant_id: str,
+    report_run_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     try:
         record = sync_report_run(tenant_id=tenant_id, report_run_id=report_run_id)
@@ -1257,7 +1374,11 @@ async def get_report_run_endpoint(tenant_id: str, report_run_id: str):
 
 
 @router.get("/tenants/{tenant_id}/report-runs/{report_run_id}/download")
-async def download_report_run_artifact(tenant_id: str, report_run_id: str):
+async def download_report_run_artifact(
+    tenant_id: str,
+    report_run_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:read"})),
+):
     _ensure_postgres_enabled()
     record = get_report_run(tenant_id=tenant_id, report_run_id=report_run_id)
     if record is None:
@@ -1279,6 +1400,7 @@ async def reprocess_report_run_endpoint(
     tenant_id: str,
     report_run_id: str,
     payload: ReportRunReprocessPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"reports:write"})),
 ):
     _ensure_postgres_enabled()
     _ensure_tenant_active(tenant_id)
@@ -1359,7 +1481,10 @@ async def reprocess_report_run_endpoint(
 
 
 @router.post("/jobs/{job_id}/stop")
-async def stop_job(job_id: str):
+async def stop_job(
+    job_id: str,
+    principal: Principal | None = Depends(require_principal(scopes={"jobs:stop"}, require_tenant_match=False)),
+):
     try:
         job = Job.fetch(job_id, connection=get_redis())
     except Exception:
@@ -1367,6 +1492,14 @@ async def stop_job(job_id: str):
 
     redis_conn = get_redis()
     tenant_id = job.meta.get("tenant_id", "default")
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
+    enforce_rate_limit(
+        bucket="jobs_stop",
+        subject=str(tenant_id),
+        limit=settings.rate_limit_job_stop_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
     lock_key = f"recibox:lock:{tenant_id}"
 
     try:
@@ -1399,7 +1532,10 @@ async def stop_job(job_id: str):
     }
 
 @router.post("/process/{file_id}")
-async def process_file(file_id: str):
+async def process_file(
+    file_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"}, require_tenant_match=False)),
+):
     return {"file_id": file_id, "status": "queued"}
 
 
@@ -1408,37 +1544,53 @@ async def google_oauth_login(
     tenant_id: str = Query("default"),
     popup: bool = Query(False),
 ):
+    raise HTTPException(status_code=410, detail="Deprecated endpoint. Use POST /auth/google/start")
+
+
+@router.post("/auth/google/start")
+async def google_oauth_start(
+    request: Request,
+    payload: OAuthStartPayload,
+    tenant_id: str = Query("default"),
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
+    enforce_rate_limit(
+        bucket="oauth_start",
+        subject=(principal.subject if principal is not None else get_request_ip(request)),
+        limit=settings.rate_limit_oauth_start_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
     try:
         code_verifier = google_oauth.generate_code_verifier()
-        state_payload = {"tenant_id": tenant_id, "popup": popup, "cv": code_verifier}
-        url = google_oauth.get_authorization_url(
-            json.dumps(state_payload),
+        state = oauth_state.issue_oauth_state(
+            get_redis(),
+            tenant_id=tenant_id,
+            popup=payload.popup,
+            code_verifier=code_verifier,
+            opener_origin=_popup_origin_from_request(request),
+        )
+        auth_url = google_oauth.get_authorization_url(
+            state,
             code_verifier=code_verifier,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    return RedirectResponse(url=url)
+    return {"status": "ok", "tenant_id": tenant_id, "auth_url": auth_url}
 
-
-def _parse_oauth_state(state: str) -> tuple[str, bool, str | None]:
-    try:
-        data = json.loads(state)
-    except Exception:
-        return state, False, None
-    if not isinstance(data, dict):
-        return state, False, None
-    tenant_id = str(data.get("tenant_id", "default"))
-    popup = bool(data.get("popup", False))
-    code_verifier = str(data.get("cv", "")).strip() or None
-    return tenant_id, popup, code_verifier
-
-
-def _oauth_popup_callback_html(tenant_id: str, ok: bool, message: str) -> str:
+def _oauth_popup_callback_html(
+    tenant_id: str,
+    ok: bool,
+    message: str,
+    opener_origin: str | None = None,
+) -> str:
     payload = {
         "source": "recibox-oauth",
         "ok": ok,
         "tenant_id": tenant_id,
         "message": message,
+        "opener_origin": opener_origin,
     }
     payload_json = json.dumps(payload)
     payload_param = quote(payload_json, safe="")
@@ -1475,7 +1627,7 @@ async def google_oauth_popup_bridge(payload: str = Query("{}")):
   const payload = {payload_json};
   try {{
     if (window.opener) {{
-      window.opener.postMessage(payload, "*");
+      window.opener.postMessage(payload, payload.opener_origin || "*");
     }}
   }} catch (_err) {{}}
   setTimeout(function () {{ window.close(); }}, 120);
@@ -1484,9 +1636,26 @@ async def google_oauth_popup_bridge(payload: str = Query("{}")):
 
 
 @router.get("/auth/google/callback")
-async def google_oauth_callback(code: str, state: str = Query("default")):
-    tenant_id, popup, code_verifier = _parse_oauth_state(state)
+async def google_oauth_callback(
+    code: str | None = Query(None),
+    state: str = Query("default"),
+    error: str | None = Query(None),
+    error_description: str | None = Query(None),
+):
+    popup = False
+    tenant_id = "default"
+    opener_origin = None
     try:
+        state_data = oauth_state.consume_oauth_state(get_redis(), state)
+        tenant_id = state_data["tenant_id"]
+        popup = bool(state_data["popup"])
+        code_verifier = state_data["code_verifier"]
+        opener_origin = state_data.get("opener_origin")
+        if error:
+            message = unquote_plus(str(error_description or error or "").strip()) or "Google OAuth fue cancelado"
+            raise ValueError(message)
+        if not code:
+            raise ValueError("Google OAuth no devolvio un codigo de autorizacion")
         google_oauth.exchange_code_for_token(
             tenant_id,
             code,
@@ -1494,6 +1663,17 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
         )
         redis_conn = get_redis()
         set_tenant_disabled(redis_conn, tenant_id, False)
+    except ValueError as exc:
+        if popup:
+            return HTMLResponse(
+                content=_oauth_popup_callback_html(
+                    tenant_id=tenant_id,
+                    ok=False,
+                    message=str(exc),
+                    opener_origin=opener_origin,
+                )
+            )
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         if popup:
             return HTMLResponse(
@@ -1501,6 +1681,7 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
                     tenant_id=tenant_id,
                     ok=False,
                     message=str(exc),
+                    opener_origin=opener_origin,
                 )
             )
         raise HTTPException(status_code=500, detail=str(exc))
@@ -1511,6 +1692,7 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
                 tenant_id=tenant_id,
                 ok=True,
                 message=f"Tenant '{tenant_id}' vinculado.",
+                opener_origin=opener_origin,
             )
         )
 
@@ -1518,7 +1700,12 @@ async def google_oauth_callback(code: str, state: str = Query("default")):
 
 
 @router.get("/auth/google/status")
-async def google_oauth_status(tenant_id: str = Query("default")):
+async def google_oauth_status(
+    tenant_id: str = Query("default"),
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
     try:
         status = google_oauth.get_token_status(tenant_id)
     except Exception as exc:
@@ -1538,7 +1725,10 @@ async def google_oauth_unlink(
     clear_drive_config: bool = Query(True),
     clear_lock: bool = Query(True),
     disable_tenant: bool = Query(True),
+    principal: Principal | None = Depends(require_user_principal()),
 ):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
     try:
         result = google_oauth.unlink_tenant_oauth(tenant_id)
     except Exception as exc:
@@ -1573,15 +1763,126 @@ async def google_oauth_unlink(
 
 
 @router.post("/auth/google/refresh")
-async def google_oauth_refresh(tenant_id: str = Query("default")):
+async def google_oauth_refresh(
+    tenant_id: str = Query("default"),
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
     try:
         return google_oauth.refresh_tenant_credentials(tenant_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/tenants/{tenant_id}/service-tokens")
+async def get_service_tokens_endpoint(
+    tenant_id: str,
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
+    ensure_principal_has_roles(principal, {"owner", "admin"})
+    _ensure_postgres_enabled()
+    try:
+        tokens = list_service_tokens(tenant_id=tenant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"List service tokens failed: {exc}")
+    return {
+        "tenant_id": tenant_id,
+        "count": len(tokens),
+        "items": [
+            {
+                "token_id": token.token_id,
+                "tenant_id": token.tenant_id,
+                "name": token.name,
+                "scopes": token.scopes,
+                "created_by_uid": token.created_by_uid,
+                "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+                "revoked_at": token.revoked_at.isoformat() if token.revoked_at else None,
+                "last_used_at": token.last_used_at.isoformat() if token.last_used_at else None,
+                "created_at": token.created_at.isoformat(),
+                "updated_at": token.updated_at.isoformat(),
+            }
+            for token in tokens
+        ],
+    }
+
+
+@router.post("/tenants/{tenant_id}/service-tokens")
+async def post_service_token_endpoint(
+    tenant_id: str,
+    payload: ServiceTokenCreatePayload,
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
+    ensure_principal_has_roles(principal, {"owner", "admin"})
+    if principal is None or not principal.uid:
+        raise HTTPException(status_code=401, detail="Missing authenticated user")
+    _ensure_postgres_enabled()
+    enforce_rate_limit(
+        bucket="service_tokens",
+        subject=principal.subject,
+        limit=settings.rate_limit_service_token_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+    try:
+        token_record, plain_token = create_service_token(
+            tenant_id=tenant_id,
+            name=payload.name,
+            scopes=payload.scopes,
+            created_by_uid=principal.uid,
+            expires_in_days=payload.expires_in_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Create service token failed: {exc}")
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "token": {
+            "token_id": token_record.token_id,
+            "name": token_record.name,
+            "scopes": token_record.scopes,
+            "created_by_uid": token_record.created_by_uid,
+            "expires_at": token_record.expires_at.isoformat() if token_record.expires_at else None,
+            "created_at": token_record.created_at.isoformat(),
+            "secret": plain_token,
+        },
+    }
+
+
+@router.post("/tenants/{tenant_id}/service-tokens/{token_id}/revoke")
+async def revoke_service_token_endpoint(
+    tenant_id: str,
+    token_id: str,
+    principal: Principal | None = Depends(require_user_principal()),
+):
+    if principal is not None:
+        ensure_principal_matches_tenant(principal, tenant_id)
+    ensure_principal_has_roles(principal, {"owner", "admin"})
+    _ensure_postgres_enabled()
+    try:
+        token_record = revoke_service_token(tenant_id=tenant_id, token_id=token_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Revoke service token failed: {exc}")
+    if token_record is None:
+        raise HTTPException(status_code=404, detail="Service token not found")
+    return {
+        "status": "ok",
+        "tenant_id": tenant_id,
+        "token_id": token_record.token_id,
+        "revoked_at": token_record.revoked_at.isoformat() if token_record.revoked_at else None,
+    }
+
+
 @router.get("/tenants/{tenant_id}/drive-config")
-async def get_tenant_drive_config(tenant_id: str):
+async def get_tenant_drive_config(
+    tenant_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:read"})),
+):
     redis_conn = get_redis()
     cfg = load_tenant_drive_config(redis_conn, tenant_id)
     if not cfg:
@@ -1627,7 +1928,11 @@ async def get_tenant_drive_config(tenant_id: str):
 
 
 @router.put("/tenants/{tenant_id}/drive-config")
-async def put_tenant_drive_config(tenant_id: str, payload: TenantDriveConfigPayload):
+async def put_tenant_drive_config(
+    tenant_id: str,
+    payload: TenantDriveConfigPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
+):
     redis_conn = get_redis()
     try:
         cfg = save_tenant_drive_config(
@@ -1655,14 +1960,20 @@ async def put_tenant_drive_config(tenant_id: str, payload: TenantDriveConfigPayl
 
 
 @router.delete("/tenants/{tenant_id}/drive-config")
-async def delete_tenant_drive_config(tenant_id: str):
+async def delete_tenant_drive_config(
+    tenant_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"drive:write"})),
+):
     redis_conn = get_redis()
     deleted = clear_tenant_drive_config(redis_conn, tenant_id)
     return {"status": "ok", "tenant_id": tenant_id, "deleted": deleted}
 
 
 @router.get("/tenants/{tenant_id}/processing-preferences")
-async def get_tenant_processing_preferences(tenant_id: str):
+async def get_tenant_processing_preferences(
+    tenant_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"})),
+):
     redis_conn = get_redis()
     cfg = resolve_tenant_processing_preferences(redis_conn, tenant_id)
     has_custom = load_tenant_processing_preferences(redis_conn, tenant_id) is not None
@@ -1687,7 +1998,11 @@ async def get_tenant_processing_preferences(tenant_id: str):
 
 
 @router.put("/tenants/{tenant_id}/processing-preferences")
-async def put_tenant_processing_preferences(tenant_id: str, payload: ProcessingPreferencesPayload):
+async def put_tenant_processing_preferences(
+    tenant_id: str,
+    payload: ProcessingPreferencesPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"})),
+):
     redis_conn = get_redis()
     try:
         cfg = save_tenant_processing_preferences(
@@ -1728,14 +2043,21 @@ async def put_tenant_processing_preferences(tenant_id: str, payload: ProcessingP
 
 
 @router.delete("/tenants/{tenant_id}/processing-preferences")
-async def delete_tenant_processing_preferences(tenant_id: str):
+async def delete_tenant_processing_preferences(
+    tenant_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"jobs:run"})),
+):
     redis_conn = get_redis()
     deleted = clear_tenant_processing_preferences(redis_conn, tenant_id)
     return {"status": "ok", "tenant_id": tenant_id, "deleted": deleted}
 
 
 @router.post("/tenants/{tenant_id}/templates/draft-from-file")
-async def create_template_draft_from_file(tenant_id: str, payload: TemplateDraftFromFilePayload):
+async def create_template_draft_from_file(
+    tenant_id: str,
+    payload: TemplateDraftFromFilePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     _ensure_tenant_active(tenant_id)
     try:
         draft = build_template_draft_for_file(
@@ -1758,7 +2080,11 @@ async def create_template_draft_from_file(tenant_id: str, payload: TemplateDraft
 
 
 @router.get("/tenants/{tenant_id}/template-groups")
-async def get_template_groups_endpoint(tenant_id: str, sync: bool = Query(False)):
+async def get_template_groups_endpoint(
+    tenant_id: str,
+    sync: bool = Query(False),
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:read"})),
+):
     _ensure_tenant_active(tenant_id)
     try:
         groups = list_template_groups(tenant_id=tenant_id)
@@ -1775,7 +2101,11 @@ async def get_template_groups_endpoint(tenant_id: str, sync: bool = Query(False)
 
 
 @router.post("/tenants/{tenant_id}/template-groups")
-async def post_template_group(tenant_id: str, payload: TemplateGroupPayload):
+async def post_template_group(
+    tenant_id: str,
+    payload: TemplateGroupPayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     _ensure_tenant_active(tenant_id)
     try:
         ensure_template_group_name_available(
@@ -1807,7 +2137,11 @@ async def post_template_group(tenant_id: str, payload: TemplateGroupPayload):
 
 
 @router.get("/tenants/{tenant_id}/templates")
-async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
+async def get_templates(
+    tenant_id: str,
+    include_inactive: bool = Query(True),
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:read"})),
+):
     try:
         templates = list_document_templates(tenant_id=tenant_id, include_inactive=include_inactive)
         rules_by_template = list_classification_rules_for_templates(
@@ -1845,7 +2179,11 @@ async def get_templates(tenant_id: str, include_inactive: bool = Query(True)):
 
 
 @router.get("/tenants/{tenant_id}/templates/{template_id}")
-async def get_template_detail(tenant_id: str, template_id: str):
+async def get_template_detail(
+    tenant_id: str,
+    template_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:read"})),
+):
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
         rule = get_classification_rule(tenant_id=tenant_id, template_id=template_id)
@@ -1873,7 +2211,11 @@ async def get_template_detail(tenant_id: str, template_id: str):
 
 
 @router.get("/tenants/{tenant_id}/templates/{template_id}/source-pdf")
-async def get_template_source_pdf(tenant_id: str, template_id: str):
+async def get_template_source_pdf(
+    tenant_id: str,
+    template_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:read"})),
+):
     _ensure_tenant_active(tenant_id)
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
@@ -1904,8 +2246,20 @@ async def get_template_source_pdf(tenant_id: str, template_id: str):
 
 
 @router.post("/tenants/{tenant_id}/templates/{template_id}/source-pdf")
-async def post_template_source_pdf(tenant_id: str, template_id: str, file: UploadFile = File(...)):
+async def post_template_source_pdf(
+    request: Request,
+    tenant_id: str,
+    template_id: str,
+    file: UploadFile = File(...),
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     _ensure_tenant_active(tenant_id)
+    enforce_rate_limit(
+        bucket="template_upload",
+        subject=str(tenant_id),
+        limit=settings.rate_limit_upload_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
     except Exception as exc:
@@ -1918,8 +2272,24 @@ async def post_template_source_pdf(tenant_id: str, template_id: str, file: Uploa
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     try:
-        content = await file.read()
+        max_bytes = max(int(settings.max_template_source_pdf_mb), 1) * 1024 * 1024
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Template source PDF exceeds {settings.max_template_source_pdf_mb} MB limit",
+                )
+            chunks.append(chunk)
+        content = b"".join(chunks)
         save_template_source_pdf(tenant_id=tenant_id, template_id=template_id, content=content)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1931,7 +2301,11 @@ async def post_template_source_pdf(tenant_id: str, template_id: str, file: Uploa
 
 
 @router.post("/tenants/{tenant_id}/templates")
-async def post_template(tenant_id: str, payload: TemplatePayload):
+async def post_template(
+    tenant_id: str,
+    payload: TemplatePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     try:
         group = get_template_group(tenant_id=tenant_id, group_id=payload.group_id)
         if not group:
@@ -1973,7 +2347,12 @@ async def post_template(tenant_id: str, payload: TemplatePayload):
 
 
 @router.put("/tenants/{tenant_id}/templates/{template_id}")
-async def put_template(tenant_id: str, template_id: str, payload: TemplatePayload):
+async def put_template(
+    tenant_id: str,
+    template_id: str,
+    payload: TemplatePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     try:
         existing_template = get_document_template(tenant_id=tenant_id, template_id=template_id)
     except Exception as exc:
@@ -2032,7 +2411,11 @@ async def put_template(tenant_id: str, template_id: str, payload: TemplatePayloa
 
 
 @router.get("/tenants/{tenant_id}/templates/{template_id}/classification-rule")
-async def get_template_classification_rule(tenant_id: str, template_id: str):
+async def get_template_classification_rule(
+    tenant_id: str,
+    template_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:read"})),
+):
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
     except Exception as exc:
@@ -2068,6 +2451,7 @@ async def put_template_classification_rule(
     tenant_id: str,
     template_id: str,
     payload: ClassificationRulePayload,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
 ):
     try:
         template = get_document_template(tenant_id=tenant_id, template_id=template_id)
@@ -2115,7 +2499,11 @@ async def put_template_classification_rule(
 
 
 @router.delete("/tenants/{tenant_id}/templates/{template_id}")
-async def remove_template(tenant_id: str, template_id: str):
+async def remove_template(
+    tenant_id: str,
+    template_id: str,
+    _principal: Principal | None = Depends(require_principal(scopes={"templates:write"})),
+):
     try:
         deleted = delete_document_template(tenant_id=tenant_id, template_id=template_id)
     except Exception as exc:

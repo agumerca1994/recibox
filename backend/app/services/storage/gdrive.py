@@ -339,6 +339,45 @@ def get_file_parents(file_id: str, *, tenant_id: str | None = None) -> list[str]
     return resp.get("parents", [])
 
 
+def file_has_any_ancestor(
+    file_id: str,
+    *,
+    ancestor_ids: list[str] | tuple[str, ...] | set[str],
+    tenant_id: str | None = None,
+    max_depth: int = 16,
+) -> bool:
+    normalized_ancestors = {
+        str(ancestor_id or "").strip()
+        for ancestor_id in ancestor_ids
+        if str(ancestor_id or "").strip()
+    }
+    current_ids = [str(file_id or "").strip()]
+    visited: set[str] = set()
+    depth = 0
+
+    while current_ids and depth < max(int(max_depth or 0), 1):
+        next_ids: list[str] = []
+        for current_id in current_ids:
+            if not current_id or current_id in visited:
+                continue
+            visited.add(current_id)
+            try:
+                metadata = get_file_metadata(current_id, tenant_id=tenant_id, fields="id, parents")
+            except Exception:
+                continue
+            parents = [
+                str(parent_id).strip()
+                for parent_id in metadata.get("parents", [])
+                if str(parent_id).strip()
+            ]
+            if any(parent_id in normalized_ancestors for parent_id in parents):
+                return True
+            next_ids.extend(parent_id for parent_id in parents if parent_id not in visited)
+        current_ids = next_ids
+        depth += 1
+    return False
+
+
 def move_and_rename(
     file_id: str,
     folder_id: str,
